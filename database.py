@@ -8,22 +8,20 @@ def get_db_connection():
 
 # Функция для создания таблиц
 def create_tables():
-    conn = get_db_connection()
+    conn = sqlite3.connect('user_plans.db')
     cursor = conn.cursor()
+
+
+
+    # Создаем новую таблицу без ограничения уникальности на user_id
     cursor.execute('''
-    CREATE TABLE IF NOT EXISTS users (
-        user_id INTEGER PRIMARY KEY,
-        user_name TEXT
-    )
+        CREATE TABLE IF NOT EXISTS user_plans (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            user_id INTEGER NOT NULL,
+            plan TEXT NOT NULL
+        )
     ''')
-    cursor.execute('''
-    CREATE TABLE IF NOT EXISTS plans (
-        user_id INTEGER,
-        plan_type TEXT,
-        PRIMARY KEY (user_id),
-        FOREIGN KEY (user_id) REFERENCES users (user_id)
-    )
-    ''')
+
     conn.commit()
     conn.close()
 
@@ -46,17 +44,28 @@ def save_user_name(user_id, user_name):
 
 # Функция для получения плана пользователя
 def get_user_plan(user_id):
-    conn = get_db_connection()
+    # Подключаемся к базе данных
+    conn = sqlite3.connect('user_plans.db')
     cursor = conn.cursor()
-    cursor.execute('SELECT plan_type FROM plans WHERE user_id = ?', (user_id,))
-    result = cursor.fetchone()
+
+    # Извлекаем план пользователя
+    cursor.execute('SELECT plan FROM user_plans WHERE user_id = ?', (user_id,))
+    result = cursor.fetchall()
     conn.close()
-    return result[0] if result else None
+
+    if result:
+        return result  # Возвращаем текст планов
+    return None  # Если плана нет, возвращаем None
 
 # Функция для сохранения плана пользователя
-def save_user_plan(user_id, plan_type):
-    conn = get_db_connection()
+def save_user_plan(user_id, plan_text):
+    # Подключаемся к базе данных
+    conn = sqlite3.connect('user_plans.db')
     cursor = conn.cursor()
-    cursor.execute('INSERT OR REPLACE INTO plans (user_id, plan_type) VALUES (?, ?)', (user_id, plan_type))
+
+    # Сохраняем новый план в таблице
+    cursor.execute('''INSERT INTO user_plans (user_id, plan) VALUES (?, ?)''', (user_id, plan_text))
+
+    # Сохраняем изменения и закрываем соединение
     conn.commit()
-    conn.close() 
+    conn.close()

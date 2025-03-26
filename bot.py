@@ -1,249 +1,428 @@
-from aiogram import Bot, Dispatcher, types
-from aiogram import F
-import asyncio
-from aiogram.types import Message, ReplyKeyboardMarkup, KeyboardButton, InlineKeyboardMarkup, InlineKeyboardButton, CallbackQuery
+from aiogram import Bot, Dispatcher, types,F
 from aiogram.filters import CommandStart, Command
-from database import create_tables, get_user_name, save_user_name, save_user_plan, get_user_plan,get_base_plan,get_plan_name_by_id,update_user_current_plan, get_current_plan, get_db_connection,get_plan_text_by_name
+from aiogram.types import Message,InlineKeyboardMarkup, InlineKeyboardButton, CallbackQuery
+from aiogram.utils.keyboard import InlineKeyboardBuilder
+from aiogram.fsm.context import FSMContext
+from aiogram.fsm.state import State, StatesGroup
+import asyncio
+from database import create_tables, get_user_name, save_user_name, save_user_plan, get_user_plan, get_base_plan, get_plan_name_by_id, update_user_current_plan, get_current_plan, get_db_connection, get_plan_text_by_name
+from dotenv import load_dotenv
+import os
+from database import get_user_name, save_user_name,get_base_plan,get_plan_name_by_id,save_user_plan,get_user_plan,update_user_current_plan,get_current_plan,get_plan_text_by_name
 
-TOKEN = '7947948717:AAF_yeOpDDLoOCrTUWQRzb_akKx05xWpNVU'
-bot = Bot(token=TOKEN)
+# Загрузка токена из .env
+load_dotenv()
+bot = Bot(token="7947948717:AAF_yeOpDDLoOCrTUWQRzb_akKx05xWpNVU")
 dp = Dispatcher()
+
+# Создаем таблицы в БД при запуске
 create_tables()
 
+# Состояния пользователя
+class UserState(StatesGroup):
+    waiting_for_nickname = State()
+    waiting_for_plan_title = State()
+    waiting_for_plan_tasks = State()
+    waiting_for_base_plan_choice = State()
+    waiting_for_confirm = State()
 
-chech_name = False
-chech_new_plan = False
-chech_create_plan = False
-chech_change_plan = False
-chech_base_plan = False
-
-@dp.message(Command('start'))
-async def start_command(message: types.Message):
-    print("Команда /start")
-    global chech_name
+# Команда /start
+@dp.message(CommandStart())
+async def start_command(message: Message, state: FSMContext):
     user_id = message.from_user.id
     user_name = get_user_name(user_id)
     
     if user_name is None:
-        await message.reply('Еу. Я твой бот для рассписания, меня завут P.I.B(пиб) - все названия и вся кринжовость текста связанная с моим создателем я думаю ты его знаешь). Я вижу тебя первый раз, так что давай для начала узнаем как мне тебя называть. Мой создатель назвал себя хер и я его теперь пеостоянно так назваю. Не будь как этот конч и давай ка придумай что-нибудь прикольное. ')
-        await message.reply("Напиши ник")
-        chech_name = True # Ожидание сообщения с ником
-        
+        await message.answer('Привет! Я твой бот для планирования. Как мне тебя называть?')
+        await state.set_state(UserState.waiting_for_nickname)
     else:
-        await message.reply(f"Еу, {user_name}! Я твой бот для рассписания, меня завут P.I.B(пиб) - все названия и вся кринжовость текста связанная с моим создателем я думаю ты его знаешь). Чем могу помочь?Если что попробуй написать /help")
+        await message.answer(f"Привет, {user_name}! Чем могу помочь?")
+        await show_main_menu(message)
 
+# Обработчик ввода ника
+@dp.message(UserState.waiting_for_nickname)
+async def process_nickname(message: Message, state: FSMContext):
+    user_id = message.from_user.id
+    user_nick = message.text
+    save_user_name(user_id, user_nick)
+    await message.answer(f"Отлично, {user_nick}!")
+    await state.clear()
+    await show_main_menu(message)
 
+# Главное меню
+async def show_main_menu(message: Message):
+    keyboard = InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text="Мои планы", callback_data="my_plans")],
+        [InlineKeyboardButton(text="Базовые планы", callback_data="base_plans")],
+        [InlineKeyboardButton(text="Создать план", callback_data="create_plan")],
+        [InlineKeyboardButton(text="Текущий план", callback_data="current_plan")]
+    ])
+    await message.answer("Выберите действие:", reply_markup=keyboard)
+
+# Команда /help
 @dp.message(Command('help'))
-async def help_command(message: types.Message):
-    print("Команда /help")
-    await message.reply("Доступные команды:\n"
-                       "/start - Начать работу с ботом\n"
-                       "/help - Показать это сообщение\n "
-                       "/info - Получить информацию о планировании\n"
-                       "/check_current_plan - Посмотреть актуальный план\n"
-                       "/view_base_plans - Посмотреть базовые планы\n"
-                       "/choose_plan - Выбрать или изменить план\n"
-                       "/create_plan - Создать план\n ")
+async def help_command(message: Message):
+    help_text = (
+        "Доступные команды:\n"
+        "/start - Начать работу с ботом\n"
+        "/help - Показать это сообщение\n"
+        "/info - О планировании\n"
+        "/create_plan - Создать новый план\n"
+        "/view_plans - Посмотреть планы"
+    )
+    await message.answer(help_text)
 
-
-@dp.message(Command('create_plan'))
-async def create_plan_command(message: types.Message):
-    print("Команда /create_plan")
-    global chech_create_plan
-    await message.reply("Пожалуйста, введите текст вашего плана:")
-    chech_create_plan = True   # Устанавливаем состояние ожидания плана
-
-# Обработчик команды /view_base_plans
-@dp.message(Command('view_base_plans'))
-async def view_base_plans_command(message: types.Message):
-    global chech_base_plan
-    base_plans = get_base_plan() # Получаем план п
-    if base_plans:
-        for plan in base_plans:
-            await message.reply(plan[1])
-            await message.reply(plan[0])
-        await message.reply("Вот планы, если хотите выберите один из них, просто напиши 1, 2, 3 или 4")
-        chech_base_plan = True
-    else:
-        await message.reply("У вас нет сохраненных планов.")
-
-                       
-# Обработчик команды для выбора плана
-@dp.message(Command('choose_plan'))
-async def choose_plan_command(message: types.Message):
-    global chech_change_plan, chech_new_plan
-    print("Команда /choose_plan")
-    user_id = message.from_user.id
-    current_plan = get_user_plan(user_id)
+# Обработчик базовых планов для start
+@dp.callback_query(F.data == 'base_plans')
+async def show_base_plans(callback: CallbackQuery, state: FSMContext):
+    base_plans = get_base_plan()
     
-    if current_plan:
-        await message.reply(f"У вас уже выбран план: {current_plan}. Хотите его изменить? (да/нет)")
-        chech_change_plan = True
+    if not base_plans:
+        await callback.message.answer("Нет доступных базовых планов.")
+        return
+
+    keyboard = InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text=plan[1], callback_data=f"select_base_{plan[0]}")]
+        for plan in base_plans
+    ])
+    await callback.message.answer("Выберите базовый план:", reply_markup=keyboard)
+    await callback.answer()
+
+# Обработчик выбора базового плана для start
+@dp.callback_query(F.data.startswith('select_base_'))
+async def select_base_plan(callback: CallbackQuery):
+    plan_id = int(callback.data.split('_')[-1])
+    plan_name = get_plan_name_by_id(plan_id)
+    user_id = callback.from_user.id
+    
+    update_user_current_plan(user_id, plan_name)
+    await callback.message.answer(f"Вы выбрали план: {plan_name}")
+    await callback.answer()
+
+# Создание плана - шаг 1
+@dp.callback_query(F.data == 'create_plan')
+async def create_plan_start(callback: CallbackQuery, state: FSMContext):
+    await callback.message.answer("Введите название для нового плана:")
+    await state.set_state(UserState.waiting_for_plan_title)
+    await callback.answer()
+
+# Создание плана - шаг 2
+@dp.message(UserState.waiting_for_plan_title)
+async def process_plan_title(message: Message, state: FSMContext):
+    await state.update_data(title=message.text)
+    await message.answer("Теперь введите задачи плана (каждая задача с новой строки):")
+    await state.set_state(UserState.waiting_for_plan_tasks)
+
+# Создание плана - шаг 3
+@dp.message(UserState.waiting_for_plan_tasks)
+async def process_plan_tasks(message: Message, state: FSMContext):
+    data = await state.get_data()
+    plan_title = data['title']
+    tasks = message.text.split('\n')
+    
+    # Сохраняем план в БД
+    save_user_plan(
+        user_id=message.from_user.id,
+        plan_name=plan_title,
+        plan_text='\n'.join(tasks)
+    )
+    
+    await message.answer(f"План '{plan_title}' успешно создан!")
+    await state.clear()
+
+# Просмотр текущего плана
+@dp.callback_query(F.data == 'current_plan')
+async def show_current_plan(callback: CallbackQuery):
+    user_id = callback.from_user.id
+    plan_name = get_current_plan(user_id)
+    
+    if not plan_name:
+        await callback.message.answer("У вас нет активного плана.")
+        await callback.answer()
+        return
+
+    plan_text = get_plan_text_by_name(plan_name)
+    if plan_text:
+        await callback.message.answer(f"📋 Текущий план: {plan_name}\n\n{plan_text}")
     else:
-        keyboard = InlineKeyboardMarkup(inline_keyboard=[
-            [InlineKeyboardButton(text="Базовый план", callback_data='base_plan')],
-            [InlineKeyboardButton(text="Авторский план", callback_data='current_plan')]
-        ])
+        await callback.message.answer("Не удалось загрузить план.")
+    await callback.answer()
 
-        await message.reply("Выберите вид плана:", reply_markup=keyboard)
-
-# Обработчик нажатий на инлайн-кнопки
-@dp.callback_query(lambda c: c.data in ['base_plan', 'current_plan'])
-async def process_plan_selection(callback_query: CallbackQuery):
-    await bot.answer_callback_query(callback_query.id)  # Подтверждаем нажатие кнопки
-
-    if callback_query.data == 'base_plan':
-        await bot.send_message(callback_query.from_user.id, "Вы выбрали Базовый план.")
-        
-        # Получаем все базовые планы
-        base_plans = get_base_plan()  # Получаем планы из базы данных
-        
-        if base_plans:
-            for plan in base_plans:
-                await bot.send_message(callback_query.from_user.id, plan[1])
-                await bot.send_message(callback_query.from_user.id, plan[0])
-
-            # Создаем кнопки для каждого плана
-            keyboard = InlineKeyboardMarkup(inline_keyboard=[
-                [InlineKeyboardButton(text=plan[1], callback_data=plan[1]) for plan in base_plans]
-            ])
-            await bot.send_message(callback_query.from_user.id, "Выберите план:", reply_markup=keyboard)
-        else:
-            await bot.send_message(callback_query.from_user.id, "Нет доступных базовых планов.")
-
-    elif callback_query.data == 'current_plan':
-        await bot.send_message(callback_query.from_user.id, "Вы выбрали Актуальный план.")
-        
-        # Получаем все авторские планы
-        user_id = callback_query.from_user.id
-        auth_plans = get_user_plan(user_id)  # Получаем планы из базы данных
-        
-        if auth_plans:
-            for plan in auth_plans:
-                await bot.send_message(callback_query.from_user.id, plan[1])
-                await bot.send_message(callback_query.from_user.id, plan[0])
-
-            # Создаем кнопки для каждого плана
-            keyboard = InlineKeyboardMarkup(inline_keyboard=[
-                [InlineKeyboardButton(text=plan[1], callback_data=plan[1]) for plan in auth_plans]
-            ])
-            await bot.send_message(callback_query.from_user.id, "Выберите план:", reply_markup=keyboard)
-        else:
-            await bot.send_message(callback_query.from_user.id, "Нет доступных авторских планов.")
-
-@dp.callback_query(lambda c: c.data in [plan[1] for plan in get_base_plan()])
-async def handle_plan_selection(callback_query: CallbackQuery):
-    selected_plan = callback_query.data
-    name_plan = selected_plan
-    user_id = callback_query.from_user.id
-    update_user_current_plan(user_id,name_plan)
-    await bot.send_message(callback_query.from_user.id, f"Вы выбрали план: {selected_plan}.")
-    # Здесь можно добавить логику для обработки выбранного планаe
-
-# Обработчик выбора плана
-@dp.callback_query(lambda c: c.data in [plan[1] for plan in get_user_plan(c.from_user.id)])
-async def handle_plan_selection(callback_query: CallbackQuery):
-    selected_plan = callback_query.data
-    name_plan = selected_plan
-    user_id = callback_query.from_user.id  # Получаем ID пользователя
-    update_user_current_plan(user_id, name_plan)  # Обновляем текущий план пользователя
-    await bot.send_message(user_id, f"Вы выбрали план: {name_plan}.")  # Отправляем сообщение пользователю
-
-
-# Обработчик команды /info
+# Команда /info
 @dp.message(Command('info'))
-async def info_command(message: types.Message):
-    print("Команда /info")
-    user_id = message.from_user.id
-    user_name = get_user_name(user_id)
+async def info_command(message: Message):
+    info_text = (
+        "Планирование помогает:\n\n"
+        "1. Избежать суеты в течение дня\n"
+        "2. Освободить время для отдыха\n"
+        "3. Развивать дисциплину\n\n"
+        "Попробуйте создать свой первый план!"
+    )
+    await message.answer(info_text)
+
+class PlanCreation(StatesGroup): # начало обработки создания плана
+    waiting_for_title = State()
+    waiting_for_tasks = State()
+    waiting_for_confirmation = State()
+
+# Обработчик команды /create_plan
+@dp.message(Command('create_plan'))
+async def create_plan_command(message: types.Message, state: FSMContext):
+    await message.answer(
+        "📝 Давайте создадим новый план.\n"
+        "Введите название для вашего плана:"
+    )
+    await state.set_state(PlanCreation.waiting_for_title)
+
+# Обработчик ввода названия плана
+@dp.message(PlanCreation.waiting_for_title)
+async def process_plan_title(message: types.Message, state: FSMContext):
+    await state.update_data(title=message.text)
+    await message.answer(
+        "✏️ Теперь введите задачи для плана (каждая задача с новой строки):\n\n"
+        "Пример:\n"
+        "1. Зарядка\n"
+        "2. Завтрак\n"
+        "3. Работа над проектом"
+    )
+    await state.set_state(PlanCreation.waiting_for_tasks)
+
+# Обработчик ввода задач плана
+@dp.message(PlanCreation.waiting_for_tasks)
+async def process_plan_tasks(message: types.Message, state: FSMContext):
+    tasks = message.text.split('\n')
+    data = await state.get_data()
     
-    if user_name is None:
-        await message.reply('Ваше имя еще не установлено. Пожалуйста, используйте команду /start, чтобы ввести его.')
-    else:
-        await message.reply(f'{user_name}, давай подумаем, а зачем нам вообще нужно планировать? Ведь если подумать — ты каждый день тратишь определённое время на написание плана на день, и появляется вопрос — а зачем это надо? Но мой создатель неплохо так изучил этот вопрос и, главное, проверил планирование в жизни. Если не веришь этому "херу с горы", то послушай 100 роликов (которые он посмотрел) и убедись в этом.\n\n1.  Те 5 минут, которые ты тратишь на составление плана, спасают тебя от суеты посреди дня. Сам подумай, когда тебе легче: когда ты знаешь, что тебе нужно сделать с утра, и, сделав одно, переходишь к другому? Или ты проснулся, думаешь, что тебе надо сделать, сделал это, а потом опять думаешь, и так далее? И при этом поверь мне, ты суетишься, и это отнимает в десятки раз больше времени, чем 5 минут.\n\n2.  Ты можешь думать: Я такая свободная личность, мне бы летать, а я сам себя в клетку сажаю? Нет, тебе так кажется. План как раз освобождает тебя. Ты же знаешь, что "Делу время, а потехе час". Так вот, если ты чётко поставь делу время, то, во-первых, сократишь его, а во-вторых, ты точно будешь знать, когда настанет время для "потехи". В итоге на залипание в стену будет больше времени.\n\n3.  Само дисциплина. Очень полезный навык. Как он работает? Да вот как: когда ты сам написал себе план, будь добр его выполнить. Пусть твоё слово что-то значит. Ты оцениваешь свои возможности, ты ставишь приоритеты, и ты управляешь временем, а не наоборот.На самом деле, очень много плюсов. Если ты хочешь узнать больше, то спроси у "хера с горы", который меня создал.')
+    # Форматируем задачи в красивый список
+    formatted_tasks = "\n".join(f"• {task.strip()}" for task in tasks if task.strip())
+    
+    await state.update_data(tasks=formatted_tasks)
+    
+    # Показываем предпросмотр плана
+    preview = (
+        f"📋 <b>{data['title']}</b>\n\n"
+        f"{formatted_tasks}\n\n"
+        "Всё верно? (да/нет)"
+    )
+    
+    await message.answer(preview, parse_mode='HTML')
+    await state.set_state(PlanCreation.waiting_for_confirmation)
 
-@dp.message(Command('check_current_plan'))
-async def check_current_plan_command(message: types.Message):
-    print('команда - check_current_plan')
-    user_id = message.from_user.id
-    current_plan_name = get_current_plan(user_id)
-    print(current_plan_name)
-    if current_plan_name:
-        # Получаем текст плана из base_plans с помощью новой функции. Или если в base_plans нет то в user_plan
-        plan_text = get_plan_text_by_name(current_plan_name)
-        if plan_text:
-            await message.reply(f"Ваш текущий план: {current_plan_name}\n\n{plan_text}")
-        else:
-            await message.reply("План не найден в базе данных.")
-    else:
-        await message.reply("У вас нет текущего плана.")
-
-# Обработчик текстовых сообщений для выбора плана
-@dp.message()
-async def handle_plan_selection(message: types.Message):
-    global chech_name, chech_new_plan, chech_create_plan, chech_change_plan, chech_base_plan
-    user_id = message.from_user.id
-    current_plan = get_user_plan(user_id)
-    if chech_name:
+# Обработчик подтверждения плана
+@dp.message(PlanCreation.waiting_for_confirmation, F.text.lower().in_(['да', 'нет']))
+async def confirm_plan(message: types.Message, state: FSMContext):
+    if message.text.lower() == 'да':
+        data = await state.get_data()
         user_id = message.from_user.id
-        user_nick = message.text
-        save_user_name(user_id, user_nick)
-        await message.reply(f"Умничка,{user_nick}")
-        await message.reply(f'Давай подумаем, а зачем нам вообще нужно планировать? Ведь если подумать — ты каждый день тратишь определённое время на написание плана на день, и появляется вопрос — а зачем это надо? Но мой создатель неплохо так изучил этот вопрос и, главное, проверил планирование в жизни. Если не веришь этому "херу с горы", то послушай 100 роликов (которые он посмотрел) и убедись в этом.\n1.Те 5 минут, которые ты тратишь на составление плана, спасают тебя от суеты посреди дня. Сам подумай, когда тебе легче: когда ты знаешь, что тебе нужно сделать с утра, и, сделав одно, переходишь к другому? Или ты проснулся, думаешь, что тебе надо сделать, сделал это, а потом опять думаешь, и так далее? И при этом поверь мне, ты суетишься, и это отнимает в десятки раз больше времени, чем 5 минут.\n2.Ты можешь думать: Я такая свободная личность, мне бы летать, а я сам себя в клетку сажаю? Нет, тебе так кажется. План как раз освобождает тебя. Ты же знаешь, что "Делу время, а потехе час". Так вот, если ты чётко поставь делу время, то, во-первых, сократишь его, а во-вторых, ты точно будешь знать, когда настанет время для "потехи". В итоге на залипание в стену будет больше времени.\n3.Само дисциплина. Очень полезный навык. Как он работает? Да вот как: когда ты сам написал себе план, будь добр его выполнить. Пусть твоё слово что-то значит. Ты оцениваешь свои возможности, ты ставишь приоритеты, и ты управляешь временем, а не наоборот.На самом деле, очень много плюсов. Если ты хочешь узнать больше, то спроси у "хера с горы", который меня создал.')
-        chech_name = False
+        
+        # Сохраняем план в базу данных
+        save_user_plan(
+            user_id=user_id,
+            plan_name=data['title'],
+            plan_text=data['tasks']
+        )
+        
+        await message.answer(
+            f"✅ План <b>{data['title']}</b> успешно сохранён!\n"
+            "Теперь вы можете использовать его в своём расписании.",
+            parse_mode='HTML'
+        )
+    else:
+        await message.answer(
+            "Создание плана отменено.\n"
+            "Если хотите начать заново, введите /create_plan"
+        )
+    
+    await state.clear()
 
-    elif chech_new_plan:
-        if message.text in ['1', '2', '3']:
-            plan_types = { '1': 'lite', '2': 'med', '3': 'hard' }
-            selected_plan = plan_types[message.text]
-
-            if current_plan:
-                await message.reply(f"Вы действительно хотите изменить план с {current_plan} на {selected_plan}? (да/нет)")
-            else:
-                save_user_plan(user_id, selected_plan)
-                await message.reply(f"Вы выбрали план: {selected_plan}.")
-        elif current_plan and message.text.lower() == 'да':
-            save_user_plan(user_id, selected_plan)
-            await message.reply(f"План успешно изменен на: {selected_plan}.")
-        elif current_plan and message.text.lower() == 'нет':
-            await message.reply("Вы оставили текущий план без изменений.")
-        else:
-            await message.reply("Пожалуйста, выберите 1, 2 или 3 для выбора плана.")
-        chech_new_plan = False
-    elif chech_create_plan:
-        test = (message.text).split('\n')
-        name_plan = test[0]
-        text_plan = '\n'.join(test[1:])
-        save_user_plan(user_id,name_plan,text_plan)
-        await message.reply(f"Ваш план сохранен: {message.text}.")
-        chech_create_plan = False
-    elif chech_change_plan:
-        if message.text.lower() == 'да':
-            keyboard = InlineKeyboardMarkup(inline_keyboard=[
-                [InlineKeyboardButton(text="Базовый план", callback_data='base_plan')],
-                [InlineKeyboardButton(text="Актуальный план", callback_data='current_plan')]
-            ])
-            await message.reply("Какой план хотите посмотреть:", reply_markup=keyboard)
-        chech_change_plan = False
-    elif chech_base_plan:
-        id_plan = message.text
-        name_plan = get_plan_name_by_id(id_plan)
-        user_id = message.from_user.id
-        update_user_current_plan(user_id,name_plan)
-        await message.reply(f"Ура. План выбран")
-
-        chech_base_plan = False
+# Обработчик некорректного ввода подтверждения
+@dp.message(PlanCreation.waiting_for_confirmation)
+async def wrong_confirmation(message: types.Message):
+    await message.answer("Пожалуйста, ответьте 'да' или 'нет'")
 
 
 
-def get_text_plan(plan):
-    pass
+class PlanView(StatesGroup):
+    viewing_plans = State()
 
+# Обработчик команды /view_plans
+@dp.message(Command('view_plans'))
+async def view_plans_command(message: types.Message, state: FSMContext):
+    # Создаем клавиатуру с выбором типа планов
+    builder = InlineKeyboardBuilder()
+    builder.add(
+        types.InlineKeyboardButton(
+            text="Базовые планы",
+            callback_data="view_base_plans"
+        ),
+        types.InlineKeyboardButton(
+            text="Мои планы",
+            callback_data="view_user_plans"
+        )
+    )
+    builder.adjust(1)
+    
+    await message.answer(
+        "📂 Выберите тип планов для просмотра:",
+        reply_markup=builder.as_markup()
+    )
+    await state.set_state(PlanView.viewing_plans)
 
-# Функция запуска бота
+# Обработчик выбора базовых планов
+@dp.callback_query(F.data == "view_base_plans", PlanView.viewing_plans)
+async def show_base_plans(callback: types.CallbackQuery):
+    base_plans = get_base_plan()
+    
+    if not base_plans:
+        await callback.message.edit_text("Базовые планы не найдены.")
+        return
+    
+    builder = InlineKeyboardBuilder()
+    
+    for plan in base_plans:
+        builder.add(
+            types.InlineKeyboardButton(
+                text=plan['name'],
+                callback_data=f"select_plan:base:{plan['id']}"
+            )
+        )
+    
+    builder.add(
+        types.InlineKeyboardButton(
+            text="← Назад",
+            callback_data="back_to_plan_types"
+        )
+    )
+    builder.adjust(1)
+    
+    await callback.message.edit_text(
+        "📚 Доступные базовые планы:",
+        reply_markup=builder.as_markup()
+    )
+    await callback.answer()
+
+# Обработчик выбора пользовательских планов
+@dp.callback_query(F.data == "view_user_plans", PlanView.viewing_plans)
+async def show_user_plans(callback: types.CallbackQuery):
+    user_plans = get_user_plan(callback.from_user.id)
+    
+    if not user_plans:
+        await callback.message.edit_text("У вас пока нет сохраненных планов.")
+        return
+    
+    builder = InlineKeyboardBuilder()
+    
+    for plan in user_plans:
+        builder.add(
+            types.InlineKeyboardButton(
+                text=plan['name'],
+                callback_data=f"select_plan:user:{plan['id']}"
+            )
+        )
+    
+    builder.add(
+        types.InlineKeyboardButton(
+            text="← Назад",
+            callback_data="back_to_plan_types"
+        )
+    )
+    builder.adjust(1)
+    
+    await callback.message.edit_text(
+        "📁 Ваши сохраненные планы:",
+        reply_markup=builder.as_markup()
+    )
+    await callback.answer()
+
+# Обработчик возврата к выбору типа планов
+@dp.callback_query(F.data == "back_to_plan_types")
+async def back_to_plan_types(callback: types.CallbackQuery):
+    builder = InlineKeyboardBuilder()
+    builder.add(
+        types.InlineKeyboardButton(
+            text="Базовые планы",
+            callback_data="view_base_plans"
+        ),
+        types.InlineKeyboardButton(
+            text="Мои планы",
+            callback_data="view_user_plans"
+        )
+    )
+    builder.adjust(1)
+    
+    await callback.message.edit_text(
+        "📂 Выберите тип планов для просмотра:",
+        reply_markup=builder.as_markup()
+    )
+    await callback.answer()
+
+# Обработчик выбора конкретного плана
+@dp.callback_query(F.data.startswith("select_plan:"))
+async def select_plan(callback: types.CallbackQuery):
+    _, plan_type, plan_id = callback.data.split(':')
+    
+    if plan_type == "base":
+        plans = get_base_plan()
+    else:
+        plans = get_user_plan(callback.from_user.id)
+    
+    selected_plan = next((p for p in plans if p['id'] == int(plan_id)), None)
+    
+    if not selected_plan:
+        await callback.answer("План не найден!")
+        return
+    
+    builder = InlineKeyboardBuilder()
+    builder.add(
+        types.InlineKeyboardButton(
+            text="Выбрать этот план",
+            callback_data=f"use_plan:{plan_type}:{plan_id}"
+        ),
+        types.InlineKeyboardButton(
+            text="← Назад",
+            callback_data=f"view_{plan_type}_plans"
+        )
+    )
+    builder.adjust(1)
+    
+    await callback.message.edit_text(
+        f"📋 <b>{selected_plan['name']}</b>\n\n"
+        f"{selected_plan['plan_text']}\n\n"
+        "Вы можете выбрать этот план как текущий:",
+        parse_mode='HTML',
+        reply_markup=builder.as_markup()
+    )
+    await callback.answer()
+
+# Обработчик применения плана
+@dp.callback_query(F.data.startswith("use_plan:"))
+async def use_plan(callback: types.CallbackQuery):
+    _, plan_type, plan_id = callback.data.split(':')
+    
+    if plan_type == "base":
+        plans = get_base_plan()
+    else:
+        plans = get_user_plan(callback.from_user.id)
+    
+    selected_plan = next((p for p in plans if p['id'] == int(plan_id)), None)
+    
+    if not selected_plan:
+        await callback.answer("План не найден!")
+        return
+    
+    update_user_current_plan(callback.from_user.id, selected_plan['name'])
+    
+    await callback.message.edit_text(
+        f"✅ План <b>{selected_plan['name']}</b> теперь ваш текущий план!\n\n"
+        f"Содержание:\n{selected_plan['plan_text']}",
+        parse_mode='HTML'
+    )
+    await callback.answer()
+
+# Запуск бота
 async def main():
-    print('Бот запущен...')
+    print("Бот запущен...")
     await dp.start_polling(bot)
 
 if __name__ == '__main__':
-    asyncio.run(main()) 
+    asyncio.run(main())

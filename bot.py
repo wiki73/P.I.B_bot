@@ -12,7 +12,8 @@ from database import get_user_name, save_user_name,get_base_plan,get_plan_name_b
 
 # Загрузка токена из .env
 load_dotenv()
-bot = Bot(token="7947948717:AAF_yeOpDDLoOCrTUWQRzb_akKx05xWpNVU")
+TOKEN = os.getenv("TOKEN")
+bot = Bot(token=TOKEN)
 dp = Dispatcher()
 
 # Создаем таблицы в БД при запуске

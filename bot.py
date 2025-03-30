@@ -1,6 +1,6 @@
 from aiogram import Bot, Dispatcher, types,F
 from aiogram.filters import CommandStart, Command
-from aiogram.types import Message,InlineKeyboardMarkup, InlineKeyboardButton, CallbackQuery
+from aiogram.types import Message,InlineKeyboardMarkup, InlineKeyboardButton, CallbackQuery, ReplyKeyboardMarkup, KeyboardButton
 from aiogram.utils.keyboard import InlineKeyboardBuilder
 from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import State, StatesGroup
@@ -27,7 +27,43 @@ class UserState(StatesGroup):
     waiting_for_base_plan_choice = State()
     waiting_for_confirm = State()
 
-# Команда /start
+# Клавиатура для личных сообщений
+personal_keyboard = ReplyKeyboardMarkup(
+    keyboard=[
+        [KeyboardButton(text="/start"), KeyboardButton(text="/help")],
+        [KeyboardButton(text="/info"), KeyboardButton(text="/create_plan")],
+        [KeyboardButton(text="/view_plans")]
+    ],
+    resize_keyboard=True,
+    persistent=True
+)
+
+# Клавиатура для групповых чатов
+group_keyboard = ReplyKeyboardMarkup(
+    keyboard=[
+        [KeyboardButton(text="/new_day"), KeyboardButton(text="/static")],
+        [KeyboardButton(text="/help")]
+    ],
+    resize_keyboard=True,
+    persistent=True
+)
+####
+@dp.message(F.chat.type == {"group", "supergroup"})
+async def private_chat_handler(message: Message, state: FSMContext):
+    # Если сообщение не обработано другими хендлерами
+    if not message.text.startswith('/'):
+        await message.answer(
+            "Используйте кнопки меню или команды:",
+            reply_markup=personal_keyboard
+        )
+# @dp.message()
+# async def auto_keyboard(message: Message):
+#     if message.chat.type == "private" and not message.text.startswith('/'):
+#         await message.answer("Выберите команду:", reply_markup=personal_keyboard)
+#     elif message.chat.type in {"group", "supergroup"} and not message.text.startswith('/'):
+#         await message.answer("Используйте групповые команды:", reply_markup=group_keyboard)
+
+# Обработчик команды /start
 @dp.message(CommandStart())
 async def start_command(message: Message, state: FSMContext):
     user_id = message.from_user.id
@@ -40,16 +76,6 @@ async def start_command(message: Message, state: FSMContext):
         await message.answer(f"Привет, {user_name}! Чем могу помочь?")
         await show_main_menu(message)
 
-# Обработчик ввода ника
-@dp.message(UserState.waiting_for_nickname)
-async def process_nickname(message: Message, state: FSMContext):
-    user_id = message.from_user.id
-    user_nick = message.text
-    save_user_name(user_id, user_nick)
-    await message.answer(f"Отлично, {user_nick}!")
-    await state.clear()
-    await show_main_menu(message)
-
 # Главное меню
 async def show_main_menu(message: Message):
     keyboard = InlineKeyboardMarkup(inline_keyboard=[
@@ -60,18 +86,63 @@ async def show_main_menu(message: Message):
     ])
     await message.answer("Выберите действие:", reply_markup=keyboard)
 
+# Обработчик ввода ника
+@dp.message(UserState.waiting_for_nickname)
+async def process_nickname(message: Message, state: FSMContext):
+    user_id = message.from_user.id
+    user_nick = message.text
+    save_user_name(user_id, user_nick)
+    await message.answer(f"Отлично, {user_nick}!", reply_markup=personal_keyboard)
+    await state.clear()
+    await show_main_menu(message)
+
 # Команда /help
 @dp.message(Command('help'))
 async def help_command(message: Message):
-    help_text = (
-        "Доступные команды:\n"
-        "/start - Начать работу с ботом\n"
-        "/help - Показать это сообщение\n"
-        "/info - О планировании\n"
-        "/create_plan - Создать новый план\n"
-        "/view_plans - Посмотреть планы"
-    )
-    await message.answer(help_text)
+    
+    
+    if message.chat.type == "private":
+        help_text = (
+            "Личные команды:\n"
+            "/start - Начало работы\n"
+            "/help - Показать это сообщение\n"
+            "/info - О планировании\n"
+            "/create_plan - Создать новый план\n"
+            "/view_plans - Посмотреть планы"
+        )
+
+        # Добавляем кнопку для просмотра текущего плана
+        inline_keyboard = InlineKeyboardMarkup(inline_keyboard=[
+            [InlineKeyboardButton(text="Посмотреть текущий план", callback_data="current_plan")]
+        ])
+
+        await message.answer(help_text, reply_markup=personal_keyboard)
+        await message.answer("Вы можете также:", reply_markup=inline_keyboard)
+    else:
+        await message.answer(
+            "Групповые команды:\n"
+            "/new_day - Начать день\n"
+            "/static - Статистика",
+            reply_markup=group_keyboard
+        )
+
+# Обработчик авторсикх планов для start
+@dp.callback_query(F.data == 'my_plans')
+async def show_user_plans(callback: CallbackQuery, state: FSMContext):
+    user_plans = get_user_plan(callback.from_user.id)
+    
+    if not user_plans:
+        await callback.message.answer("У вас пока нет сохраненных планов.")
+        await callback.answer()
+        return
+
+    keyboard = InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text=plan['name'], callback_data=f"select_plan:user:{plan['id']}")]
+        for plan in user_plans
+    ])
+    
+    await callback.message.answer("Выберите свой план:", reply_markup=keyboard)
+    await callback.answer()
 
 # Обработчик базовых планов для start
 @dp.callback_query(F.data == 'base_plans')
@@ -131,7 +202,7 @@ async def process_plan_tasks(message: Message, state: FSMContext):
     await message.answer(f"План '{plan_title}' успешно создан!")
     await state.clear()
 
-# Просмотр текущего плана
+# Обработчик для текущего плана
 @dp.callback_query(F.data == 'current_plan')
 async def show_current_plan(callback: CallbackQuery):
     user_id = callback.from_user.id
@@ -306,9 +377,9 @@ async def show_base_plans(callback: types.CallbackQuery):
 @dp.callback_query(F.data == "view_user_plans", PlanView.viewing_plans)
 async def show_user_plans(callback: types.CallbackQuery):
     user_plans = get_user_plan(callback.from_user.id)
-    
     if not user_plans:
-        await callback.message.edit_text("У вас пока нет сохраненных планов.")
+        await callback.message.answer("У вас пока нет сохраненных планов.")
+        await callback.answer()
         return
     
     builder = InlineKeyboardBuilder()
@@ -419,6 +490,24 @@ async def use_plan(callback: types.CallbackQuery):
         parse_mode='HTML'
     )
     await callback.answer()
+
+# Обработчик /new_day для групп
+@dp.message(Command('new_day'), F.chat.type.in_({"group", "supergroup"}))
+async def new_day_command(message: Message):
+    await message.answer(
+        "📅 Начинаем новый день! Вот что я могу для группы:",
+        reply_markup=group_keyboard
+    )
+    # Здесь будет логика создания общего плана дня
+
+# Обработчик /static для групп
+@dp.message(Command('static'), F.chat.type.in_({"group", "supergroup"}))
+async def static_command(message: Message):
+    await message.answer(
+        "📊 Статистика группы:",
+        reply_markup=group_keyboard
+    )
+    # Здесь будет логика показа статистики
 
 # Запуск бота
 async def main():

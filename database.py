@@ -38,11 +38,21 @@ def create_tables():
         CREATE TABLE IF NOT EXISTS user_plans (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             user_id INTEGER NOT NULL,
-            name TEXT NOT NULL,
+            plan_name TEXT NOT NULL,
             plan_text TEXT NOT NULL,
-            creation_date TEXT DEFAULT CURRENT_TIMESTAMP,
-            FOREIGN KEY (user_id) REFERENCES users(user_id),
-            UNIQUE(user_id, name)
+            created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+            is_public BOOLEAN DEFAULT 0,
+            FOREIGN KEY (user_id) REFERENCES users(user_id)
+        )''')
+        
+        # Планы групп
+        cursor.execute('''
+        CREATE TABLE IF NOT EXISTS group_plans (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            group_id INTEGER NOT NULL,
+            plan_id INTEGER NOT NULL,
+            FOREIGN KEY (plan_id) REFERENCES user_plans(id),
+            UNIQUE(group_id, plan_id)
         )''')
         
         # Текущие планы
@@ -63,6 +73,7 @@ def create_tables():
             cursor.executemany('INSERT INTO base_plans (name, plan_text) VALUES (?, ?)', default_plans)
         
         conn.commit()
+
 # Пользователи
 def get_user_name(user_id: int) -> Optional[str]:
     """Получить имя пользователя по ID"""
@@ -94,25 +105,30 @@ def get_plan_name_by_id(plan_id: int) -> Optional[str]:
         return result['name'] if result else None
 
 # Пользовательские планы
-def save_user_plan(user_id: int, plan_name: str, plan_text: str):
-    """Сохранить пользовательский план"""
+def save_user_plan(user_id: int, name: str, text: str):
+    """Сохраняет пользовательский план"""
     with get_db_connection() as conn:
         cursor = conn.cursor()
-        try:
-            cursor.execute(
-                'INSERT INTO user_plans (user_id, name, plan_text) VALUES (?, ?, ?)',
-                (user_id, plan_name, plan_text)
-            )
-            conn.commit()
-        except sqlite3.IntegrityError:
-            # Если план с таким именем уже существует для пользователя
-            raise ValueError("План с таким именем уже существует")
+        cursor.execute(
+            'INSERT INTO user_plans (user_id, plan_name, plan_text) VALUES (?, ?, ?)',
+            (user_id, name, text)
+        )
+        conn.commit()
 
 def get_user_plan(user_id: int) -> List[Dict[str, Any]]:
-    """Получить все планы пользователя"""
+    """Получает все планы пользователя"""
     with get_db_connection() as conn:
         cursor = conn.cursor()
-        cursor.execute('SELECT id, name, plan_text FROM user_plans WHERE user_id = ?', (user_id,))
+        cursor.execute('''
+            SELECT 
+                id, 
+                plan_name as name,
+                plan_text,
+                created_at
+            FROM user_plans 
+            WHERE user_id = ?
+            ORDER BY created_at DESC
+        ''', (user_id,))
         return [dict(row) for row in cursor.fetchall()]
 
 # Текущие планы
@@ -145,7 +161,33 @@ def get_plan_text_by_name(plan_name: str) -> Optional[str]:
         
         if not result:
             # Затем проверяем пользовательские планы
-            cursor.execute('SELECT plan_text FROM user_plans WHERE name = ?', (plan_name,))
+            cursor.execute('SELECT plan_text FROM user_plans WHERE plan_name = ?', (plan_name,))
             result = cursor.fetchone()
         
         return result['plan_text'] if result else None
+
+def save_public_plan(group_id: int, user_id: int, name: str, text: str):
+    """Сохраняет публичный план для группы"""
+    with get_db_connection() as conn:
+        cursor = conn.cursor()
+        cursor.execute(
+            '''INSERT INTO public_plans 
+            (group_id, user_id, plan_name, plan_text) 
+            VALUES (?, ?, ?, ?)''',
+            (group_id, user_id, name, text)
+        )
+        conn.commit()
+
+def get_active_group_plan(group_id: int) -> Optional[dict]:
+    """Получает активный план группы"""
+    with get_db_connection() as conn:
+        cursor = conn.cursor()
+        cursor.execute('''
+            SELECT p.*, u.name as username 
+            FROM public_plans p
+            JOIN users u ON p.user_id = u.user_id
+            WHERE group_id = ?
+            ORDER BY created_at DESC
+            LIMIT 1
+        ''', (group_id,))
+        return cursor.fetchone()

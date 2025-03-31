@@ -1,15 +1,19 @@
-from aiogram import Bot, Dispatcher, types,F
+from aiogram import Bot, Dispatcher, types, F
 from aiogram.filters import CommandStart, Command
-from aiogram.types import Message,InlineKeyboardMarkup, InlineKeyboardButton, CallbackQuery, ReplyKeyboardMarkup, KeyboardButton
+from aiogram.types import Message, InlineKeyboardMarkup, InlineKeyboardButton, CallbackQuery, ReplyKeyboardMarkup, KeyboardButton, ForceReply
 from aiogram.utils.keyboard import InlineKeyboardBuilder
 from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import State, StatesGroup
 import asyncio
-from database import create_tables, get_user_name, save_user_name, save_user_plan, get_user_plan, get_base_plan, get_plan_name_by_id, update_user_current_plan, get_current_plan, get_db_connection, get_plan_text_by_name
+from datetime import datetime
 from dotenv import load_dotenv
 import os
-from database import get_user_name, save_user_name,get_base_plan,get_plan_name_by_id,save_user_plan,get_user_plan,update_user_current_plan,get_current_plan,get_plan_text_by_name
+import logging
+from database import *
 
+# Настройка логгера
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
 # Загрузка токена из .env
 load_dotenv()
 TOKEN = os.getenv("TOKEN")
@@ -56,12 +60,6 @@ async def private_chat_handler(message: Message, state: FSMContext):
             "Используйте кнопки меню или команды:",
             reply_markup=personal_keyboard
         )
-# @dp.message()
-# async def auto_keyboard(message: Message):
-#     if message.chat.type == "private" and not message.text.startswith('/'):
-#         await message.answer("Выберите команду:", reply_markup=personal_keyboard)
-#     elif message.chat.type in {"group", "supergroup"} and not message.text.startswith('/'):
-#         await message.answer("Используйте групповые команды:", reply_markup=group_keyboard)
 
 # Обработчик команды /start
 @dp.message(CommandStart())
@@ -75,6 +73,15 @@ async def start_command(message: Message, state: FSMContext):
     else:
         await message.answer(f"Привет, {user_name}! Чем могу помочь?")
         await show_main_menu(message)
+
+async def show_main_menu(message: Message):
+    keyboard = InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text="Мои планы", callback_data="my_plans")],
+        [InlineKeyboardButton(text="Базовые планы", callback_data="base_plans")],
+        [InlineKeyboardButton(text="Создать план", callback_data="create_plan")],
+        [InlineKeyboardButton(text="Текущий план", callback_data="current_plan")]
+    ])
+    await message.answer("Выберите действие:", reply_markup=keyboard)
 
 # Главное меню
 async def show_main_menu(message: Message):
@@ -151,10 +158,11 @@ async def show_base_plans(callback: CallbackQuery, state: FSMContext):
     
     if not base_plans:
         await callback.message.answer("Нет доступных базовых планов.")
+        await callback.answer()
         return
 
     keyboard = InlineKeyboardMarkup(inline_keyboard=[
-        [InlineKeyboardButton(text=plan[1], callback_data=f"select_base_{plan[0]}")]
+        [InlineKeyboardButton(text=plan['name'], callback_data=f"select_base_{plan['id']}")]
         for plan in base_plans
     ])
     await callback.message.answer("Выберите базовый план:", reply_markup=keyboard)
@@ -170,7 +178,7 @@ async def select_base_plan(callback: CallbackQuery):
     update_user_current_plan(user_id, plan_name)
     await callback.message.answer(f"Вы выбрали план: {plan_name}")
     await callback.answer()
-
+    
 # Создание плана - шаг 1
 @dp.callback_query(F.data == 'create_plan')
 async def create_plan_start(callback: CallbackQuery, state: FSMContext):
@@ -493,12 +501,25 @@ async def use_plan(callback: types.CallbackQuery):
 
 # Обработчик /new_day для групп
 @dp.message(Command('new_day'), F.chat.type.in_({"group", "supergroup"}))
-async def new_day_command(message: Message):
-    await message.answer(
-        "📅 Начинаем новый день! Вот что я могу для группы:",
-        reply_markup=group_keyboard
-    )
-    # Здесь будет логика создания общего плана дня
+async def new_day_group(message: Message):
+    try:
+        bot_username = (await bot.get_me()).username
+        deep_link = f"https://t.me/{bot_username}?start=newday_{message.chat.id}"
+        
+        await message.reply(
+            f"🌅 {message.from_user.mention_html()} начинает новый день!\n"
+            "Нажмите кнопку ниже, чтобы создать личный план ↓",
+            reply_markup=InlineKeyboardMarkup(inline_keyboard=[
+                [InlineKeyboardButton(
+                    text="✨ Создать мой план",
+                    url=deep_link
+                )]
+            ]),
+            parse_mode="HTML"
+        )
+    except Exception as e:
+        logger.error(f"Ошибка в new_day_group: {e}")
+        await message.answer("Произошла ошибка. Попробуйте позже.")
 
 # Обработчик /static для групп
 @dp.message(Command('static'), F.chat.type.in_({"group", "supergroup"}))

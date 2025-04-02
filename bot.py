@@ -87,8 +87,8 @@ async def start_command(message: Message, state: FSMContext):
 
 async def show_main_menu(message: Message):
     keyboard = InlineKeyboardMarkup(inline_keyboard=[
-        [InlineKeyboardButton(text="Мои планы", callback_data="my_plans")],
-        [InlineKeyboardButton(text="Базовые планы", callback_data="base_plans")],
+        [InlineKeyboardButton(text="Мои планы", callback_data="view_user_plans")],
+        [InlineKeyboardButton(text="Базовые планы", callback_data="view_base_plans")],
         [InlineKeyboardButton(text="Создать план", callback_data="create_plan")],
         [InlineKeyboardButton(text="Текущий план", callback_data="current_plan")]
     ])
@@ -97,8 +97,8 @@ async def show_main_menu(message: Message):
 # Главное меню
 async def show_main_menu(message: Message):
     keyboard = InlineKeyboardMarkup(inline_keyboard=[
-        [InlineKeyboardButton(text="Мои планы", callback_data="my_plans")],
-        [InlineKeyboardButton(text="Базовые планы", callback_data="base_plans")],
+        [InlineKeyboardButton(text="Мои планы", callback_data="view_user_plans")],
+        [InlineKeyboardButton(text="Базовые планы", callback_data="view_base_plans")],
         [InlineKeyboardButton(text="Создать план", callback_data="create_plan")],
         [InlineKeyboardButton(text="Текущий план", callback_data="current_plan")]
     ])
@@ -182,6 +182,7 @@ async def show_base_plans(callback: CallbackQuery, state: FSMContext):
 # Единый обработчик для работы с планами
 @dp.callback_query(F.data.startswith('plan_action:'))
 async def handle_plan_action(callback: CallbackQuery, state: FSMContext):
+    logging.info("Пользователь выбрал план.")
     current_state = await state.get_state()
     _, plan_type, plan_id = callback.data.split(':')
     plan_id = int(plan_id)
@@ -239,37 +240,7 @@ async def handle_plan_action(callback: CallbackQuery, state: FSMContext):
 # Обработчик выбора пользовательского плана в контексте создания нового дня
 @dp.callback_query(UserState.selecting_existing_plan, F.data.startswith('select_user_'))
 async def select_user_plan_for_new_day(callback: CallbackQuery, state: FSMContext):
-    try:
-        plan_id = int(callback.data.split('_')[-1])
-        plans = get_user_plan(callback.from_user.id)
-        selected_plan = next((p for p in plans if p['id'] == plan_id), None)
-        
-        if not selected_plan:
-            await callback.answer("План не найден!")
-            return
-        
-        # Разбиваем текст плана на задачи
-        tasks = selected_plan['plan_text'].split('\n')
-        
-        # Сохраняем данные в состояние
-        await state.update_data(
-            selected_plan=selected_plan,
-            tasks=tasks,
-            plan_name=selected_plan['name']
-        )
-        
-        # Показываем редактор плана
-        keyboard = InlineKeyboardMarkup(inline_keyboard=[
-            [InlineKeyboardButton(text="✏️ Редактировать задачи", callback_data="edit_tasks")],
-            [InlineKeyboardButton(text="✅ Завершить", callback_data="finish_plan")],
-            [InlineKeyboardButton(text="❌ Отмена", callback_data="cancel_plan_creation")]
-        ])
-        
-        plan_text = "📋 Ваш план:\n\n" + "\n".join(f"• {task}" for task in tasks)
-        await callback.message.edit_text(plan_text, reply_markup=keyboard)
-    except ValueError:
-        await show_user_plans(callback)
-    await callback.answer()
+    await show_user_plans(callback, state)
 
 # Обработчик выбора существующего плана
 @dp.callback_query(UserState.selecting_existing_plan, F.data.in_(["select_base_plans", "select_user_plans", "cancel_plan_creation"]))
@@ -494,6 +465,7 @@ async def view_plans_command(message: types.Message, state: FSMContext):
 # Обработчик выбора базовых планов
 @dp.callback_query(F.data == "view_base_plans", PlanView.viewing_plans)
 async def show_base_plans(callback: types.CallbackQuery):
+    logging.info("Пользователь выбрал базовые планы.")
     base_plans = get_base_plan()
     
     if not base_plans:
@@ -526,7 +498,8 @@ async def show_base_plans(callback: types.CallbackQuery):
 
 # Обработчик выбора пользовательских планов
 @dp.callback_query(F.data == "view_user_plans", PlanView.viewing_plans)
-async def show_user_plans(callback: types.CallbackQuery):
+async def show_user_plans(callback: types.CallbackQuery, state: FSMContext):
+    logging.info("Пользователь выбрал свои планы.")
     user_plans = get_user_plan(callback.from_user.id)
     if not user_plans:
         await callback.message.answer("У вас пока нет сохраненных планов.")
@@ -715,14 +688,12 @@ async def show_plan_creation_options(message: Message, state: FSMContext):
 @dp.callback_query(UserState.choosing_plan_type)
 async def handle_plan_type_choice(callback: CallbackQuery, state: FSMContext):
     if callback.data == "use_existing_plan":
-        await show_existing_plans(callback.message, state)
+        await show_existing_plans(callback, state)
+        await state.set_state(UserState.selecting_existing_plan)
     elif callback.data == "create_new_plan":
-        # Добавляем текущую дату в состояние
         current_date = datetime.now().strftime("%d.%m.%Y")
         await state.update_data(current_date=current_date)
-        await callback.message.edit_text(
-            "📝 Введите название для нового плана на сегодня:"
-        )
+        await callback.message.edit_text("📝 Введите название для нового плана на сегодня:")
         await state.set_state(UserState.creating_new_plan)
     elif callback.data == "cancel_plan_creation":
         await callback.message.edit_text("Создание плана отменено.")
@@ -881,6 +852,94 @@ async def show_plan_editor(message: Message, state: FSMContext, plan_data: dict)
     
     plan_text = "📋 Ваш план:\n\n" + "\n".join(f"• {task}" for task in tasks)
     await message.edit_text(plan_text, reply_markup=keyboard)
+
+# Обработчик выбора существующих планов
+@dp.callback_query(UserState.choosing_plan_type, F.data == "use_existing_plan")
+async def show_existing_plans(callback: CallbackQuery, state: FSMContext):
+    keyboard = InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text="Базовые планы", callback_data="select_base_plans")],
+        [InlineKeyboardButton(text="Мои планы", callback_data="select_user_plans")]
+    ])
+    
+    await callback.message.edit_text("Выберите тип существующего плана:", reply_markup=keyboard)
+    await callback.answer()
+
+# Обработчик выбора базовых планов
+@dp.callback_query(F.data == "select_base_plans")
+async def show_base_plans(callback: CallbackQuery):
+    logging.info("Обработчик show_base_plans вызван.")
+    base_plans = get_base_plan()  # Получаем базовые планы
+    
+    if not base_plans:
+        await callback.message.edit_text("Базовые планы не найдены.")
+        await callback.answer()
+        return
+
+    keyboard = InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text=plan['name'], callback_data=f"plan_action:base:{plan['id']}")]
+        for plan in base_plans
+    ])
+    
+    await callback.message.edit_text("Выберите базовый план:", reply_markup=keyboard)
+    await callback.answer()
+
+# Обработчик выбора пользовательских планов
+@dp.callback_query(F.data == "select_user_plans")
+async def show_user_plans(callback: CallbackQuery, state: FSMContext):
+    logging.info("Пользователь выбрал свои планы.")
+    user_plans = get_user_plan(callback.from_user.id)  # Получаем пользовательские планы
+    
+    if not user_plans:
+        await callback.message.edit_text("У вас пока нет сохраненных планов.")
+        await callback.answer()
+        return
+
+    keyboard = InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text=plan['name'], callback_data=f"plan_action:user:{plan['id']}")]
+        for plan in user_plans
+    ])
+    
+    await callback.message.edit_text("Выберите свой план:", reply_markup=keyboard)
+    await callback.answer()
+
+# Обработчик выбора плана
+@dp.callback_query(F.data.startswith("plan_action:"))
+async def handle_plan_action(callback: CallbackQuery, state: FSMContext):
+    logging.info("Пользователь выбрал план.")
+    current_state = await state.get_state()
+    _, plan_type, plan_id = callback.data.split(':')
+    plan_id = int(plan_id)
+    
+    # Получаем план в зависимости от типа
+    if plan_type == 'base':
+        plans = get_base_plan()
+    else:
+        plans = get_user_plan(callback.from_user.id)
+    
+    selected_plan = next((p for p in plans if p['id'] == plan_id), None)
+    if not selected_plan:
+        await callback.answer("План не найден!")
+        return
+    
+    # Разбиваем текст плана на задачи
+    tasks = selected_plan['plan_text'].split('\n')
+    
+    # Сохраняем данные в состояние
+    await state.update_data(
+        selected_plan=selected_plan,
+        tasks=tasks,
+        plan_name=selected_plan['name']
+    )
+    
+    # Показываем редактор плана
+    keyboard = InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text="✏️ Редактировать задачи", callback_data="edit_tasks")],
+        [InlineKeyboardButton(text="✅ Завершить", callback_data="finish_plan")],
+        [InlineKeyboardButton(text="❌ Отмена", callback_data="cancel_plan_creation")]
+    ])
+    
+    plan_text = "📋 Ваш план:\n\n" + "\n".join(f"• {task}" for task in tasks)
+    await callback.message.edit_text(plan_text, reply_markup=keyboard)
 
 # Запуск бота
 async def main():

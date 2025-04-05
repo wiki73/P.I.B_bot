@@ -35,6 +35,8 @@ class UserState(StatesGroup):
     selecting_existing_plan = State()
     creating_new_plan = State()
     publishing_plan = State()
+    adding_new_task = State()
+
 
 # Клавиатура для личных сообщений
 personal_keyboard = ReplyKeyboardMarkup(
@@ -709,22 +711,101 @@ async def start_task_editing(callback: CallbackQuery, state: FSMContext):
     current_date = data.get('current_date')
     plan_name = data.get('plan_name')
     
-    # Создаем клавиатуру для редактирования
+    # Создаем клавиатуру для редактирования с кнопкой добавления
     keyboard = InlineKeyboardMarkup(inline_keyboard=[
         [InlineKeyboardButton(text=f"✏️ Изменить задачу {i+1}", callback_data=f"edit_task_{i}")]
         for i in range(len(tasks))
     ] + [
+        [InlineKeyboardButton(text="➕ Добавить пункт", callback_data="add_new_task")],
         [InlineKeyboardButton(text="◀️ Назад к плану", callback_data="back_to_plan")]
     ])
     
-    # Показываем текущий план и кнопки редактирования
     plan_text = f"📅 {current_date}\n📋 {plan_name}\n\n"
     plan_text += "Текущие задачи:\n" + "\n".join(f"{i+1}. {task}" for i, task in enumerate(tasks))
-    plan_text += "\n\nВыберите задачу для редактирования:"
+    plan_text += "\n\nВыберите действие:"
     
     await callback.message.edit_text(plan_text, reply_markup=keyboard)
     await state.set_state(UserState.editing_plan)
     await callback.answer()
+
+# Обработчик добавления нового пункта
+@dp.callback_query(F.data == "add_new_task")
+async def add_new_task(callback: CallbackQuery, state: FSMContext):
+    data = await state.get_data()
+    tasks = data.get('tasks', [])
+    
+    # Создаем клавиатуру для выбора позиции
+    keyboard = InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text=f"Добавить после пункта {i+1}", callback_data=f"add_at_{i+1}")]
+        for i in range(len(tasks))
+    ] + [
+        [InlineKeyboardButton(text="Добавить в начало", callback_data="add_at_0")],
+        [InlineKeyboardButton(text="◀️ Назад", callback_data="edit_tasks")]
+    ])
+    
+    await callback.message.edit_text(
+        "Выберите, куда добавить новый пункт:",
+        reply_markup=keyboard
+    )
+    await callback.answer()
+
+# Обработчик выбора позиции для нового пункта
+@dp.callback_query(F.data.startswith("add_at_"))
+async def select_task_position(callback: CallbackQuery, state: FSMContext):
+    position = int(callback.data.split('_')[-1])
+    await state.update_data(new_task_position=position)
+    await callback.message.edit_text("Введите текст нового пункта:")
+    await state.set_state(UserState.adding_new_task)
+    await callback.answer()
+
+# Обработчик ввода текста нового пункта
+async def show_task_editor(chat_id: int, state: FSMContext):
+    data = await state.get_data()
+    tasks = data.get('tasks', [])
+    current_date = data.get('current_date')
+    plan_name = data.get('plan_name')
+    
+    keyboard = InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text=f"✏️ Изменить задачу {i+1}", callback_data=f"edit_task_{i}")]
+        for i in range(len(tasks))
+    ] + [
+        [InlineKeyboardButton(text="➕ Добавить пункт", callback_data="add_new_task")],
+        [InlineKeyboardButton(text="◀️ Назад к плану", callback_data="back_to_plan")]
+    ])
+    
+    plan_text = f"📅 {current_date}\n📋 {plan_name}\n\n"
+    plan_text += "Текущие задачи:\n" + "\n".join(f"{i+1}. {task}" for i, task in enumerate(tasks))
+    plan_text += "\n\nВыберите действие:"
+    
+    await bot.send_message(
+        chat_id=chat_id,
+        text=plan_text,
+        reply_markup=keyboard
+    )
+
+@dp.message(UserState.adding_new_task)
+async def process_new_task(message: Message, state: FSMContext):
+    try:
+        data = await state.get_data()
+        tasks = data.get('tasks', [])
+        position = data.get('new_task_position', len(tasks))
+        new_task = message.text.strip()
+        
+        if not new_task:
+            await message.answer("Текст пункта не может быть пустым. Попробуйте снова:")
+            return
+        
+        tasks.insert(position, new_task)
+        await state.update_data(tasks=tasks)
+        
+        # Показываем редактор задач
+        await show_task_editor(message.from_user.id, state)
+        await state.set_state(UserState.editing_plan)
+        
+    except Exception as e:
+        logger.error(f"Ошибка при добавлении нового пункта: {e}")
+        await message.answer("Произошла ошибка. Попробуйте снова.")
+        await state.set_state(UserState.editing_plan)
 
 # Обработчик возврата к плану
 @dp.callback_query(F.data == "back_to_plan")

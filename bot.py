@@ -1035,6 +1035,7 @@ async def handle_plan_action(callback: CallbackQuery, state: FSMContext):
 class PlanManagement(StatesGroup):
     managing_plan = State()
     marking_tasks = State()
+    adding_comment = State()
 
 # Обработчик кнопки управления планом
 @dp.callback_query(F.data.startswith("manage_plan:"))
@@ -1164,14 +1165,13 @@ async def toggle_task_mark(callback: CallbackQuery, state: FSMContext):
         await callback.answer("Ошибка при обновлении", show_alert=True)
 
 # Обработчик возврата к меню управления
-@dp.callback_query(PlanManagement.marking_tasks, F.data == "back_to_manage")
+@dp.callback_query(F.data == "back_to_manage")
 async def back_to_management(callback: CallbackQuery, state: FSMContext):
     try:
         data = await state.get_data()
         header = data['header']
         tasks = data['tasks']
         
-        # Обновляем сообщение с планом
         full_plan = f"{header}\n" + "\n".join(tasks)
         await callback.message.edit_text(
             full_plan,
@@ -1186,9 +1186,10 @@ async def back_to_management(callback: CallbackQuery, state: FSMContext):
 
 def get_management_keyboard():
     return InlineKeyboardMarkup(inline_keyboard=[
-        [InlineKeyboardButton(text="✅ Отметить пункты", callback_data="mark_tasks")],
-        [InlineKeyboardButton(text="✏️ Редактировать", callback_data="edit_plan")],
-        [InlineKeyboardButton(text="❌ Закрыть", callback_data="close_management")]
+        [InlineKeyboardButton(text="✅ Отметить пункты", callback_data="mark_tasks"),
+         InlineKeyboardButton(text="💬 Комментарии", callback_data="task_comments")],
+        [InlineKeyboardButton(text="✏️ Редактировать", callback_data="edit_plan"),
+         InlineKeyboardButton(text="❌ Закрыть", callback_data="close_management")]
     ])
 
 # Обработчик закрытия меню
@@ -1202,6 +1203,95 @@ async def close_management(callback: CallbackQuery, state: FSMContext):
     finally:
         await callback.answer()
 
+
+# Обработчик кнопки комментариев
+@dp.callback_query(PlanManagement.managing_plan, F.data == "task_comments")
+async def task_comments_handler(callback: CallbackQuery, state: FSMContext):
+    try:
+        data = await state.get_data()
+        tasks = data['tasks']
+        
+        keyboard = InlineKeyboardBuilder()
+        for i, task in enumerate(tasks):
+            # Убираем отметки для отображения
+            clean_task = task.replace('✅', '').strip()
+            keyboard.add(InlineKeyboardButton(
+                text=f"{i+1}. {clean_task[:20]}...",  # Обрезаем длинные названия
+                callback_data=f"comment_task_{i}"
+            ))
+        
+        keyboard.adjust(1)
+        keyboard.row(InlineKeyboardButton(
+            text="🔙 Назад",
+            callback_data="back_to_manage"
+        ))
+        
+        await callback.message.edit_text(
+            "Выберите пункт для добавления комментария:",
+            reply_markup=keyboard.as_markup()
+        )
+    except Exception as e:
+        logger.error(f"Ошибка в task_comments_handler: {e}")
+        await callback.answer("Ошибка при загрузке задач", show_alert=True)
+    finally:
+        await callback.answer()
+
+# Обработчик выбора задачи для комментария
+@dp.callback_query(F.data.startswith("comment_task_"))
+async def select_task_for_comment(callback: CallbackQuery, state: FSMContext):
+    try:
+        task_index = int(callback.data.split('_')[2])
+        await state.update_data({'commenting_task': task_index})
+        await callback.message.edit_text(
+            f"Введите комментарий для пункта {task_index+1}:\n"
+            "(или отправьте /cancel для отмены)"
+        )
+        await state.set_state(PlanManagement.adding_comment)
+    except Exception as e:
+        logger.error(f"Ошибка в select_task_for_comment: {e}")
+        await callback.answer("Ошибка при выборе задачи", show_alert=True)
+    finally:
+        await callback.answer()
+
+# Обработчик текста комментария
+@dp.message(PlanManagement.adding_comment, F.text)
+async def process_comment(message: Message, state: FSMContext):
+    try:
+        if message.text.startswith('/'):
+            await message.answer("Действие отменено")
+            await show_management_menu(message)
+            await state.set_state(PlanManagement.managing_plan)
+            return
+            
+        data = await state.get_data()
+        task_index = data['commenting_task']
+        tasks = data['tasks']
+        
+        # Добавляем комментарий к задаче
+        task = tasks[task_index]
+        if '💬' in task:
+            # Удаляем старый комментарий если есть
+            task = task.split('💬')[0].strip()
+        
+        tasks[task_index] = f"{task} 💬{message.text}"
+        await state.update_data({'tasks': tasks})
+        
+        # Обновляем сообщение с планом
+        header = data['header']
+        full_plan = f"{header}\n" + "\n".join(tasks)
+        
+        await message.bot.edit_message_text(
+            chat_id=data['chat_id'],
+            message_id=data['message_id'],
+            text=full_plan,
+            reply_markup=get_management_keyboard()
+        )
+        
+        await state.set_state(PlanManagement.managing_plan)
+        await message.answer("Комментарий успешно добавлен!")
+    except Exception as e:
+        logger.error(f"Ошибка в process_comment: {e}")
+        await message.answer("Ошибка при добавлении комментария")
         
 # Запуск бота
 async def main():

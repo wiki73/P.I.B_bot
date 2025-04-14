@@ -901,11 +901,20 @@ async def publish_plan(callback: CallbackQuery, state: FSMContext):
     
     plan_text = f"📅 {current_date}\n📋 {plan_name}\n\n" + "\n".join(f"• {task}" for task in tasks)
     
+    # Создаем клавиатуру с кнопкой для работы с планом
+    keyboard = InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(
+            text="⚙️ Управление планом",
+            callback_data=f"manage_plan:{callback.from_user.id}"
+        )]
+    ])
+    
     # Публикуем план в группу
     await bot.send_message(
         chat_id=group_id,
         text=f"🌅 {callback.from_user.mention_html()} опубликовал свой план на сегодня:\n\n{plan_text}",
-        parse_mode="HTML"
+        parse_mode="HTML",
+        reply_markup=keyboard
     )
     
     await callback.message.edit_text("✅ План успешно опубликован в группу!")
@@ -1022,6 +1031,178 @@ async def handle_plan_action(callback: CallbackQuery, state: FSMContext):
     plan_text = "📋 Ваш план:\n\n" + "\n".join(f"• {task}" for task in tasks)
     await callback.message.edit_text(plan_text, reply_markup=keyboard)
 
+# Добавляем новое состояние для управления планом
+class PlanManagement(StatesGroup):
+    managing_plan = State()
+    marking_tasks = State()
+
+# Обработчик кнопки управления планом
+@dp.callback_query(F.data.startswith("manage_plan:"))
+async def manage_plan_handler(callback: CallbackQuery, state: FSMContext):
+    try:
+        # Парсим текст плана и сохраняем задачи в состояние
+        plan_text = callback.message.text
+        lines = plan_text.split('\n')
+        
+        # Отделяем заголовок (первые 2 строки) и задачи
+        header = "\n".join(lines[:2])
+        tasks = [line.strip() for line in lines[2:] if line.strip()]
+        
+        await state.update_data({
+            'header': header,
+            'tasks': tasks,
+            'message_id': callback.message.message_id,
+            'chat_id': callback.message.chat.id
+        })
+        
+        # Показываем меню управления
+        await show_management_menu(callback.message)
+        await state.set_state(PlanManagement.managing_plan)
+    except Exception as e:
+        logger.error(f"Ошибка в manage_plan_handler: {e}")
+        await callback.answer("Ошибка при обработке плана", show_alert=True)
+    finally:
+        await callback.answer()
+
+async def show_management_menu(message: Message):
+    keyboard = InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text="✅ Отметить пункты", callback_data="mark_tasks")],
+        [InlineKeyboardButton(text="✏️ Редактировать", callback_data="edit_plan")],
+        [InlineKeyboardButton(text="❌ Закрыть", callback_data="close_management")]
+    ])
+    await message.edit_reply_markup(reply_markup=keyboard)
+
+# Обработчик начала отметки задач
+@dp.callback_query(PlanManagement.managing_plan, F.data == "mark_tasks")
+async def start_marking_tasks(callback: CallbackQuery, state: FSMContext):
+    try:
+        data = await state.get_data()
+        tasks = data['tasks']
+        
+        keyboard = InlineKeyboardBuilder()
+        for i, task in enumerate(tasks):
+            clean_task = task.replace('✅', '').strip()
+            prefix = "✓ " if '✅' in task else f"{i+1}."
+            keyboard.add(InlineKeyboardButton(
+                text=f"{prefix} {clean_task}",
+                callback_data=f"toggle_{i}"
+            ))
+        
+        keyboard.adjust(1)
+        keyboard.row(InlineKeyboardButton(
+            text="🔙 Назад",
+            callback_data="back_to_manage"
+        ))
+        
+        await callback.message.edit_text(
+            "Выберите пункты для отметки:\n(✓ - отмеченные)",
+            reply_markup=keyboard.as_markup()
+        )
+        await state.set_state(PlanManagement.marking_tasks)
+    except Exception as e:
+        logger.error(f"Ошибка в start_marking_tasks: {e}")
+        await callback.answer("Ошибка при загрузке задач", show_alert=True)
+    finally:
+        await callback.answer()
+
+# Обработчик переключения отметки задачи
+@dp.callback_query(PlanManagement.marking_tasks, F.data.startswith("toggle_"))
+async def toggle_task_mark(callback: CallbackQuery, state: FSMContext):
+    try:
+        task_index = int(callback.data.split('_')[1])
+        data = await state.get_data()
+        tasks = data['tasks']
+        
+        if task_index >= len(tasks):
+            await callback.answer("Неверный номер пункта", show_alert=True)
+            return
+        
+        # Создаем копию задачи до изменения
+        original_task = tasks[task_index]
+        
+        # Переключаем отметку
+        if '✅' in original_task:
+            new_task = original_task.replace('✅', '').strip()
+        else:
+            new_task = f"✅ {original_task.replace('✅', '').strip()}"
+        
+        # Если задача не изменилась (редкий случай, но возможен)
+        if new_task == original_task:
+            await callback.answer()
+            return
+            
+        # Обновляем задачу в списке
+        tasks[task_index] = new_task
+        await state.update_data({'tasks': tasks})
+        
+        # Создаем новую клавиатуру
+        keyboard = InlineKeyboardBuilder()
+        for i, task in enumerate(tasks):
+            clean_task = task.replace('✅', '').strip()
+            prefix = "✓ " if '✅' in task else f"{i+1}."
+            keyboard.add(InlineKeyboardButton(
+                text=f"{prefix} {clean_task}",
+                callback_data=f"toggle_{i}"
+            ))
+        
+        keyboard.adjust(1)
+        keyboard.row(InlineKeyboardButton(
+            text="🔙 Назад",
+            callback_data="back_to_manage"
+        ))
+        
+        # Обновляем только если есть изменения
+        try:
+            await callback.message.edit_reply_markup(reply_markup=keyboard.as_markup())
+            await callback.answer(f"Пункт {task_index+1} обновлен")
+        except:
+            # Если не получилось обновить (например, нет изменений), просто подтверждаем нажатие
+            await callback.answer()
+            
+    except Exception as e:
+        logger.error(f"Ошибка в toggle_task_mark: {e}")
+        await callback.answer("Ошибка при обновлении", show_alert=True)
+
+# Обработчик возврата к меню управления
+@dp.callback_query(PlanManagement.marking_tasks, F.data == "back_to_manage")
+async def back_to_management(callback: CallbackQuery, state: FSMContext):
+    try:
+        data = await state.get_data()
+        header = data['header']
+        tasks = data['tasks']
+        
+        # Обновляем сообщение с планом
+        full_plan = f"{header}\n" + "\n".join(tasks)
+        await callback.message.edit_text(
+            full_plan,
+            reply_markup=get_management_keyboard()
+        )
+        await state.set_state(PlanManagement.managing_plan)
+    except Exception as e:
+        logger.error(f"Ошибка в back_to_management: {e}")
+        await callback.answer("Ошибка при возврате", show_alert=True)
+    finally:
+        await callback.answer()
+
+def get_management_keyboard():
+    return InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text="✅ Отметить пункты", callback_data="mark_tasks")],
+        [InlineKeyboardButton(text="✏️ Редактировать", callback_data="edit_plan")],
+        [InlineKeyboardButton(text="❌ Закрыть", callback_data="close_management")]
+    ])
+
+# Обработчик закрытия меню
+@dp.callback_query(PlanManagement.managing_plan, F.data == "close_management")
+async def close_management(callback: CallbackQuery, state: FSMContext):
+    try:
+        await callback.message.edit_reply_markup(reply_markup=None)
+        await state.clear()
+    except Exception as e:
+        logger.error(f"Ошибка в close_management: {e}")
+    finally:
+        await callback.answer()
+
+        
 # Запуск бота
 async def main():
     print("Бот запущен...")

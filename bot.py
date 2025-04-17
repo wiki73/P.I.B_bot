@@ -38,6 +38,13 @@ class UserState(StatesGroup):
     adding_new_task = State()
 
 
+class PlanManagement(StatesGroup):
+    managing_plan = State()
+    marking_tasks = State()
+    adding_comment = State()
+    editing_task = State()  
+    adding_task = State()
+
 # Клавиатура для личных сообщений
 personal_keyboard = ReplyKeyboardMarkup(
     keyboard=[
@@ -783,29 +790,30 @@ async def show_task_editor(chat_id: int, state: FSMContext):
         reply_markup=keyboard
     )
 
-@dp.message(UserState.adding_new_task)
+@dp.message(PlanManagement.adding_task)
 async def process_new_task(message: Message, state: FSMContext):
     try:
         data = await state.get_data()
         tasks = data.get('tasks', [])
-        position = data.get('new_task_position', len(tasks))
-        new_task = message.text.strip()
         
-        if not new_task:
-            await message.answer("Текст пункта не может быть пустым. Попробуйте снова:")
-            return
+        tasks.append(message.text)
+        await state.update_data({'tasks': tasks})
         
-        tasks.insert(position, new_task)
-        await state.update_data(tasks=tasks)
+        # Обновляем сообщение с планом
+        header = data['header']
+        full_plan = f"{header}\n" + "\n".join(tasks)
         
-        # Показываем редактор задач
-        await show_task_editor(message.from_user.id, state)
-        await state.set_state(UserState.editing_plan)
+        await message.bot.edit_message_text(
+            chat_id=data['chat_id'],
+            message_id=data['message_id'],
+            text=full_plan,
+            reply_markup=get_management_keyboard()
+        )
         
+        await state.set_state(PlanManagement.managing_plan)
     except Exception as e:
-        logger.error(f"Ошибка при добавлении нового пункта: {e}")
-        await message.answer("Произошла ошибка. Попробуйте снова.")
-        await state.set_state(UserState.editing_plan)
+        logger.error(f"Ошибка в process_new_task: {e}")
+        await message.answer("Ошибка при добавлении пункта")
 
 # Обработчик возврата к плану
 @dp.callback_query(F.data == "back_to_plan")
@@ -1031,11 +1039,6 @@ async def handle_plan_action(callback: CallbackQuery, state: FSMContext):
     plan_text = "📋 Ваш план:\n\n" + "\n".join(f"• {task}" for task in tasks)
     await callback.message.edit_text(plan_text, reply_markup=keyboard)
 
-# Добавляем новое состояние для управления планом
-class PlanManagement(StatesGroup):
-    managing_plan = State()
-    marking_tasks = State()
-    adding_comment = State()
 
 # Обработчик кнопки управления планом
 @dp.callback_query(F.data.startswith("manage_plan:"))
@@ -1293,6 +1296,142 @@ async def process_comment(message: Message, state: FSMContext):
         logger.error(f"Ошибка в process_comment: {e}")
         await message.answer("Ошибка при добавлении комментария")
         
+
+@dp.callback_query(PlanManagement.managing_plan, F.data == "edit_plan")
+async def start_editing_plan(callback: CallbackQuery, state: FSMContext):
+    try:
+        data = await state.get_data()
+        tasks = data['tasks']
+        
+        keyboard = InlineKeyboardBuilder()
+        for i, task in enumerate(tasks):
+            # Убираем отметки и комментарии для чистого отображения
+            clean_task = task.replace('✅', '').split('💬')[0].strip()
+            keyboard.add(InlineKeyboardButton(
+                text=f"{i+1}. {clean_task[:20]}...",
+                callback_data=f"edit_task_{i}"
+            ))
+        
+        keyboard.adjust(1)
+        keyboard.row(InlineKeyboardButton(
+            text="➕ Добавить пункт",
+            callback_data="add_new_task"
+        ))
+        keyboard.row(InlineKeyboardButton(
+            text="🔙 Назад",
+            callback_data="back_to_manage"
+        ))
+        
+        await callback.message.edit_text(
+            "Выберите пункт для редактирования:",
+            reply_markup=keyboard.as_markup()
+        )
+    except Exception as e:
+        logger.error(f"Ошибка в start_editing_plan: {e}")
+        await callback.answer("Ошибка при загрузке задач", show_alert=True)
+    finally:
+        await callback.answer()
+
+
+@dp.callback_query(F.data.startswith("edit_task_"))
+async def select_task_to_edit(callback: CallbackQuery, state: FSMContext):
+    try:
+        task_index = int(callback.data.split('_')[2])
+        data = await state.get_data()
+        tasks = data['tasks']
+        
+        task_text = tasks[task_index]
+        if '💬' in task_text:
+            task_text = task_text.split('💬')[0].strip()
+        task_text = task_text.replace('✅', '').strip()
+        
+        await state.update_data({
+            'editing_task_index': task_index,
+            'original_task_text': task_text
+        })
+        
+        await callback.message.edit_text(
+            f"Редактирование пункта {task_index+1}:\n\n"
+            f"Текущий текст: {task_text}\n\n"
+            "Введите новый текст для этого пункта:"
+        )
+        await state.set_state(PlanManagement.editing_task)  # Устанавливаем состояние редактирования
+    except Exception as e:
+        logger.error(f"Ошибка в select_task_to_edit: {e}")
+        await callback.answer("Ошибка при выборе задачи", show_alert=True)
+    finally:
+        await callback.answer()
+
+@dp.message(PlanManagement.editing_task)
+async def process_task_edit(message: Message, state: FSMContext):
+    try:
+        data = await state.get_data()
+        task_index = data['editing_task_index']
+        tasks = data['tasks']
+        
+        old_task = tasks[task_index]
+        marks = '✅' if '✅' in old_task else ''
+        comment = ''
+        if '💬' in old_task:
+            comment = ' 💬' + old_task.split('💬')[1]
+        
+        tasks[task_index] = f"{marks} {message.text}{comment}".strip()
+        await state.update_data({'tasks': tasks})
+        
+        header = data['header']
+        full_plan = f"{header}\n" + "\n".join(tasks)
+        
+        await message.bot.edit_message_text(
+            chat_id=data['chat_id'],
+            message_id=data['message_id'],
+            text=full_plan,
+            reply_markup=get_management_keyboard()
+        )
+        
+        await message.answer("Пункт успешно обновлен!")
+        await state.set_state(PlanManagement.managing_plan)
+    except Exception as e:
+        logger.error(f"Ошибка в process_task_edit: {e}")
+        await message.answer("Ошибка при обновлении пункта")
+    
+@dp.callback_query(F.data == "add_new_task")
+async def add_new_task_handler(callback: CallbackQuery, state: FSMContext):
+    try:
+        await callback.message.edit_text(
+            "Введите текст нового пункта:"
+        )
+        await state.set_state(PlanManagement.adding_task)  # Используем новое состояние
+    except Exception as e:
+        logger.error(f"Ошибка в add_new_task_handler: {e}")
+        await callback.answer("Ошибка при добавлении пункта", show_alert=True)
+    finally:
+        await callback.answer()
+
+@dp.message(PlanManagement.adding_task)
+async def process_new_task(message: Message, state: FSMContext):
+    try:
+        data = await state.get_data()
+        tasks = data.get('tasks', [])
+        
+        tasks.append(message.text)
+        await state.update_data({'tasks': tasks})
+        
+        # Обновляем сообщение с планом
+        header = data['header']
+        full_plan = f"{header}\n" + "\n".join(tasks)
+        
+        await message.bot.edit_message_text(
+            chat_id=data['chat_id'],
+            message_id=data['message_id'],
+            text=full_plan,
+            reply_markup=get_management_keyboard()
+        )
+        
+        await state.set_state(PlanManagement.managing_plan)
+    except Exception as e:
+        logger.error(f"Ошибка в process_new_task: {e}")
+        await message.answer("Ошибка при добавлении пункта")
+
 # Запуск бота
 async def main():
     print("Бот запущен...")

@@ -75,25 +75,6 @@ async def private_chat_handler(message: Message, state: FSMContext):
             reply_markup=personal_keyboard
         )
 
-# Обработчик команды /start
-@dp.message(CommandStart())
-async def start_command(message: Message, state: FSMContext):
-    args = message.text.split()
-    if len(args) > 1 and args[1].startswith('newday_'):
-        group_id = int(args[1].split('_')[1])
-        await state.update_data(group_id=group_id)
-        await show_plan_creation_options(message, state)
-    else:
-        user_id = message.from_user.id
-        user_name = get_user_name(user_id)
-        
-        if user_name is None:
-            await message.answer('Привет! Я твой бот для планирования. Как мне тебя называть?')
-            await state.set_state(UserState.waiting_for_nickname)
-        else:
-            await message.answer(f"Привет, {user_name}! Чем могу помочь?")
-            await show_main_menu(message)
-
 async def show_main_menu(message: Message):
     keyboard = InlineKeyboardMarkup(inline_keyboard=[
         [InlineKeyboardButton(text="Мои планы", callback_data="view_user_plans")],
@@ -103,15 +84,6 @@ async def show_main_menu(message: Message):
     ])
     await message.answer("Выберите действие:", reply_markup=keyboard)
 
-# Главное меню
-async def show_main_menu(message: Message):
-    keyboard = InlineKeyboardMarkup(inline_keyboard=[
-        [InlineKeyboardButton(text="Мои планы", callback_data="view_user_plans")],
-        [InlineKeyboardButton(text="Базовые планы", callback_data="view_base_plans")],
-        [InlineKeyboardButton(text="Создать план", callback_data="create_plan")],
-        [InlineKeyboardButton(text="Текущий план", callback_data="current_plan")]
-    ])
-    await message.answer("Выберите действие:", reply_markup=keyboard)
 
 # Обработчик ввода ника
 @dp.message(UserState.waiting_for_nickname)
@@ -153,16 +125,35 @@ async def help_command(message: Message):
             reply_markup=group_keyboard
         )
 
-# Обработчик авторсикх планов для start
-@dp.callback_query(F.data == 'my_plans')
-async def show_user_plans(callback: CallbackQuery, state: FSMContext):
+@dp.callback_query(F.data == "view_base_plans")
+async def handle_show_base_plans(callback: CallbackQuery):
+    logging.info("Пользователь выбрал базовые планы.")
+    base_plans = get_base_plan()
+    
+    if not base_plans:
+        await callback.message.edit_text("Базовые планы не найдены.")
+        await callback.answer()
+        return
+    
+    keyboard = InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text=plan['name'], callback_data=f"plan_action:base:{plan['id']}")]
+        for plan in base_plans
+    ])
+    
+    await callback.message.edit_text("Выберите базовый план:", reply_markup=keyboard)
+    await callback.answer()
+
+# Обработчик для просмотра пользовательских планов
+@dp.callback_query(F.data == "view_user_plans")
+async def handle_show_user_plans(callback: CallbackQuery, state: FSMContext):
+    logging.info("Пользователь выбрал свои планы.")
     user_plans = get_user_plan(callback.from_user.id)
     
     if not user_plans:
-        await callback.message.answer("У вас пока нет сохраненных планов.")
+        await callback.message.edit_text("У вас пока нет сохраненных планов.")
         await callback.answer()
         return
-
+    
     keyboard = InlineKeyboardMarkup(inline_keyboard=[
         [InlineKeyboardButton(text=plan['name'], callback_data=f"plan_action:user:{plan['id']}")]
         for plan in user_plans
@@ -171,22 +162,41 @@ async def show_user_plans(callback: CallbackQuery, state: FSMContext):
     await callback.message.edit_text("Выберите свой план:", reply_markup=keyboard)
     await callback.answer()
 
-# Обработчик базовых планов для start
-@dp.callback_query(F.data == 'base_plans')
-async def show_base_plans(callback: CallbackQuery, state: FSMContext):
-    base_plans = get_base_plan()
-    
-    if not base_plans:
-        await callback.message.answer("Нет доступных базовых планов.")
-        await callback.answer()
-        return
 
-    keyboard = InlineKeyboardMarkup(inline_keyboard=[
-        [InlineKeyboardButton(text=plan['name'], callback_data=f"plan_action:base:{plan['id']}")]
-        for plan in base_plans
-    ])
-    await callback.message.edit_text("Выберите базовый план:", reply_markup=keyboard)
-    await callback.answer()
+# Обработчик авторсикх планов для start
+# @dp.callback_query(F.data == 'my_plans')
+# async def show_user_plans(callback: CallbackQuery, state: FSMContext):
+#     user_plans = get_user_plan(callback.from_user.id)
+    
+#     if not user_plans:
+#         await callback.message.answer("У вас пока нет сохраненных планов.")
+#         await callback.answer()
+#         return
+
+#     keyboard = InlineKeyboardMarkup(inline_keyboard=[
+#         [InlineKeyboardButton(text=plan['name'], callback_data=f"plan_action:user:{plan['id']}")]
+#         for plan in user_plans
+#     ])
+    
+#     await callback.message.edit_text("Выберите свой план:", reply_markup=keyboard)
+#     await callback.answer()
+
+# Обработчик базовых планов для start
+# @dp.callback_query(F.data == 'base_plans')
+# async def show_base_plans(callback: CallbackQuery, state: FSMContext):
+#     base_plans = get_base_plan()
+    
+#     if not base_plans:
+#         await callback.message.answer("Нет доступных базовых планов.")
+#         await callback.answer()
+#         return
+
+#     keyboard = InlineKeyboardMarkup(inline_keyboard=[
+#         [InlineKeyboardButton(text=plan['name'], callback_data=f"plan_action:base:{plan['id']}")]
+#         for plan in base_plans
+#     ])
+#     await callback.message.edit_text("Выберите базовый план:", reply_markup=keyboard)
+#     await callback.answer()
 
 # Единый обработчик для работы с планами
 @dp.callback_query(F.data.startswith('plan_action:'))
@@ -246,6 +256,9 @@ async def handle_plan_action(callback: CallbackQuery, state: FSMContext):
     
     await callback.answer()
 
+
+
+
 # Обработчик выбора пользовательского плана в контексте создания нового дня
 @dp.callback_query(UserState.selecting_existing_plan, F.data.startswith('select_user_'))
 async def select_user_plan_for_new_day(callback: CallbackQuery, state: FSMContext):
@@ -283,17 +296,15 @@ async def handle_existing_plan_choice(callback: CallbackQuery, state: FSMContext
     
     await callback.answer()
 
-# Создание плана - шаг 1
+# Обработчик создания плана через главное меню
 @dp.callback_query(F.data == 'create_plan')
 async def create_plan_start(callback: CallbackQuery, state: FSMContext):
-    # Добавляем текущую дату в состояние
-    current_date = datetime.now().strftime("%d.%m.%Y")
-    await state.update_data(current_date=current_date)
     await callback.message.answer(
-        "📝 Введите название для нового плана на сегодня:"
+        "📝 Введите название для нового плана:"
     )
-    await state.set_state(UserState.creating_new_plan)
+    await state.set_state(PlanCreation.waiting_for_title)
     await callback.answer()
+
 
 # Создание плана - шаг 2
 @dp.message(UserState.creating_new_plan)
@@ -363,7 +374,8 @@ async def info_command(message: Message):
     )
     await message.answer(info_text)
 
-class PlanCreation(StatesGroup): # начало обработки создания плана
+
+class PlanCreation(StatesGroup):# начало обработки создания плана
     waiting_for_title = State()
     waiting_for_tasks = State()
     waiting_for_confirmation = State()
@@ -377,7 +389,7 @@ async def create_plan_command(message: types.Message, state: FSMContext):
     )
     await state.set_state(PlanCreation.waiting_for_title)
 
-# Обработчик ввода названия плана
+# Обработчик ввода названия плана (должен использовать PlanCreation.waiting_for_title)
 @dp.message(PlanCreation.waiting_for_title)
 async def process_plan_title(message: types.Message, state: FSMContext):
     await state.update_data(title=message.text)
@@ -390,7 +402,7 @@ async def process_plan_title(message: types.Message, state: FSMContext):
     )
     await state.set_state(PlanCreation.waiting_for_tasks)
 
-# Обработчик ввода задач плана
+# Обработчик ввода задач плана (должен использовать PlanCreation.waiting_for_tasks)
 @dp.message(PlanCreation.waiting_for_tasks)
 async def process_plan_tasks(message: types.Message, state: FSMContext):
     tasks = message.text.split('\n')

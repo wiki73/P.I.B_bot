@@ -145,22 +145,30 @@ async def handle_show_base_plans(callback: CallbackQuery):
 
 # Обработчик для просмотра пользовательских планов
 @dp.callback_query(F.data == "view_user_plans")
-async def handle_show_user_plans(callback: CallbackQuery, state: FSMContext):
-    logging.info("Пользователь выбрал свои планы.")
-    user_plans = get_user_plan(callback.from_user.id)
-    
-    if not user_plans:
-        await callback.message.edit_text("У вас пока нет сохраненных планов.")
-        await callback.answer()
-        return
-    
-    keyboard = InlineKeyboardMarkup(inline_keyboard=[
-        [InlineKeyboardButton(text=plan['name'], callback_data=f"plan_action:user:{plan['id']}")]
-        for plan in user_plans
-    ])
-    
-    await callback.message.edit_text("Выберите свой план:", reply_markup=keyboard)
-    await callback.answer()
+async def handle_show_user_plans(callback: CallbackQuery):
+    try:
+        user_plans = get_user_plan(callback.from_user.id)
+        
+        if not user_plans:
+            await callback.message.edit_text(
+                "У вас пока нет сохранённых планов.",
+                reply_markup=InlineKeyboardMarkup(inline_keyboard=[
+                    [InlineKeyboardButton(text="Создать план", callback_data="create_plan")]
+                ]))
+            return
+        
+        keyboard = InlineKeyboardMarkup(inline_keyboard=[
+            [InlineKeyboardButton(text=plan['name'], callback_data=f"plan_action:user:{plan['id']}")]
+            for plan in user_plans
+        ])
+        
+        await callback.message.edit_text(
+            "📁 Ваши планы:",
+            reply_markup=keyboard
+        )
+    except Exception as e:
+        logger.error(f"Ошибка при показе планов: {e}")
+        await callback.answer("Произошла ошибка. Попробуйте позже.")
 
 
 # Обработчик авторсикх планов для start
@@ -252,6 +260,8 @@ async def handle_plan_action(callback: CallbackQuery, state: FSMContext):
             f"✅ План <b>{selected_plan['name']}</b> теперь ваш текущий план!\n\n"
             f"Содержание:\n{selected_plan['plan_text']}",
             parse_mode='HTML'
+
+            
         )
     
     await callback.answer()

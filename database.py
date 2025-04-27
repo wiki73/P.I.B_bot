@@ -116,18 +116,12 @@ def save_user_plan(user_id: int, name: str, text: str):
         conn.commit()
 
 def get_user_plan(user_id: int) -> List[Dict[str, Any]]:
-    """Получает все планы пользователя"""
     with get_db_connection() as conn:
         cursor = conn.cursor()
         cursor.execute('''
-            SELECT 
-                id, 
-                plan_name as name,
-                plan_text,
-                created_at
+            SELECT id, plan_name as name, plan_text 
             FROM user_plans 
             WHERE user_id = ?
-            ORDER BY created_at DESC
         ''', (user_id,))
         return [dict(row) for row in cursor.fetchall()]
 

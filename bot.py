@@ -252,15 +252,19 @@ async def handle_plan_action(callback: CallbackQuery, state: FSMContext):
         plan_text = plan_header + "\n".join(f"• {task}" for task in tasks)
         await callback.message.edit_text(plan_text, reply_markup=keyboard)
     else:
-        # Если просто выбираем план как текущий
+        # Если просто выбираем план
         current_date = datetime.now().strftime("%d.%m.%Y")
+        keyboard = InlineKeyboardMarkup(inline_keyboard=[
+            [InlineKeyboardButton(text="📌 Сделать текущим", callback_data=f"set_current_plan:{selected_plan['name']}")],
+            [InlineKeyboardButton(text="◀️ Назад", callback_data="back_to_plan_types")]
+        ])
+        
         await callback.message.edit_text(
             f"📅 {current_date}\n"
             f"✅ План <b>{selected_plan['name']}</b>\n\n"
             f"Содержание:\n{selected_plan['plan_text']}",
-            parse_mode='HTML'
-
-            
+            parse_mode='HTML',
+            reply_markup=keyboard
         )
     
     await callback.answer()
@@ -1040,26 +1044,64 @@ async def handle_plan_action(callback: CallbackQuery, state: FSMContext):
         await callback.answer("План не найден!")
         return
     
-    # Разбиваем текст плана на задачи
-    tasks = selected_plan['plan_text'].split('\n')
+    # Если мы в процессе создания нового дня
+    if current_state == 'UserState:selecting_existing_plan':
+        # Добавляем текущую дату к плану
+        current_date = datetime.now().strftime("%d.%m.%Y")
+        plan_header = f"📅 {current_date}\n📋 {selected_plan['name']}\n\n"
+        
+        # Разбиваем текст плана на задачи
+        tasks = selected_plan['plan_text'].split('\n')
+        
+        # Сохраняем данные в состояние
+        await state.update_data(
+            selected_plan=selected_plan,
+            tasks=tasks,
+            plan_name=selected_plan['name'],
+            current_date=current_date
+        )
+        
+        # Показываем редактор плана
+        keyboard = InlineKeyboardMarkup(inline_keyboard=[
+            [InlineKeyboardButton(text="✏️ Редактировать задачи", callback_data="edit_tasks")],
+            [InlineKeyboardButton(text="✅ Завершить", callback_data="finish_plan")],
+            [InlineKeyboardButton(text="❌ Отмена", callback_data="cancel_plan_creation")]
+        ])
+        
+        plan_text = plan_header + "\n".join(f"• {task}" for task in tasks)
+        await callback.message.edit_text(plan_text, reply_markup=keyboard)
+    else:
+        # Если просто выбираем план
+        current_date = datetime.now().strftime("%d.%m.%Y")
+        keyboard = InlineKeyboardMarkup(inline_keyboard=[
+            [InlineKeyboardButton(text="📌 Сделать текущим", callback_data=f"set_current_plan:{selected_plan['name']}")],
+            [InlineKeyboardButton(text="◀️ Назад", callback_data="back_to_plan_types")]
+        ])
+        
+        await callback.message.edit_text(
+            f"📅 {current_date}\n"
+            f"✅ План <b>{selected_plan['name']}</b>\n\n"
+            f"Содержание:\n{selected_plan['plan_text']}",
+            parse_mode='HTML',
+            reply_markup=keyboard
+        )
     
-    # Сохраняем данные в состояние
-    await state.update_data(
-        selected_plan=selected_plan,
-        tasks=tasks,
-        plan_name=selected_plan['name']
-    )
-    
-    # Показываем редактор плана
-    keyboard = InlineKeyboardMarkup(inline_keyboard=[
-        [InlineKeyboardButton(text="✏️ Редактировать задачи", callback_data="edit_tasks")],
-        [InlineKeyboardButton(text="✅ Завершить", callback_data="finish_plan")],
-        [InlineKeyboardButton(text="❌ Отмена", callback_data="cancel_plan_creation")]
-    ])
-    
-    plan_text = "📋 Ваш план:\n\n" + "\n".join(f"• {task}" for task in tasks)
-    await callback.message.edit_text(plan_text, reply_markup=keyboard)
+    await callback.answer()
 
+# Добавляем обработчик для установки текущего плана
+@dp.callback_query(F.data.startswith("set_current_plan:"))
+async def set_current_plan(callback: CallbackQuery):
+    plan_name = callback.data.split(':')[1]
+    user_id = callback.from_user.id
+    
+    # Обновляем текущий план пользователя
+    update_user_current_plan(user_id, plan_name)
+    
+    await callback.message.edit_text(
+        f"✅ План <b>{plan_name}</b> установлен как текущий!",
+        parse_mode='HTML'
+    )
+    await callback.answer("План успешно установлен как текущий!")
 
 # Обработчик кнопки управления планом
 @dp.callback_query(F.data.startswith("manage_plan:"))

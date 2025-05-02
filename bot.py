@@ -254,10 +254,9 @@ async def handle_plan_action(callback: CallbackQuery, state: FSMContext):
     else:
         # Если просто выбираем план как текущий
         current_date = datetime.now().strftime("%d.%m.%Y")
-        update_user_current_plan(callback.from_user.id, selected_plan['name'])
         await callback.message.edit_text(
             f"📅 {current_date}\n"
-            f"✅ План <b>{selected_plan['name']}</b> теперь ваш текущий план!\n\n"
+            f"✅ План <b>{selected_plan['name']}</b>\n\n"
             f"Содержание:\n{selected_plan['plan_text']}",
             parse_mode='HTML'
 

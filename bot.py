@@ -207,7 +207,7 @@ async def handle_show_user_plans(callback: CallbackQuery):
 #     await callback.answer()
 
 # Единый обработчик для работы с планами
-@dp.callback_query(F.data.startswith('plan_action:'))
+@dp.callback_query(F.data.startswith("plan_action:"))
 async def handle_plan_action(callback: CallbackQuery, state: FSMContext):
     logging.info("Пользователь выбрал план.")
     current_state = await state.get_state()
@@ -254,10 +254,16 @@ async def handle_plan_action(callback: CallbackQuery, state: FSMContext):
     else:
         # Если просто выбираем план
         current_date = datetime.now().strftime("%d.%m.%Y")
-        keyboard = InlineKeyboardMarkup(inline_keyboard=[
-            [InlineKeyboardButton(text="📌 Сделать текущим", callback_data=f"set_current_plan:{selected_plan['name']}")],
-            [InlineKeyboardButton(text="◀️ Назад", callback_data="back_to_plan_types")]
-        ])
+        
+        buttons = []
+        buttons.append([InlineKeyboardButton(text="📌 Сделать текущим", callback_data=f"set_current_plan:{selected_plan['name']}")])
+        
+        if plan_type == 'user':
+            buttons.append([InlineKeyboardButton(text="🗑 Удалить план", callback_data=f"confirm_delete_plan:{plan_type}:{plan_id}")])
+            
+        buttons.append([InlineKeyboardButton(text="◀️ Назад", callback_data="back_to_plan_types")])
+        
+        keyboard = InlineKeyboardMarkup(inline_keyboard=buttons)
         
         await callback.message.edit_text(
             f"📅 {current_date}\n"
@@ -1025,66 +1031,47 @@ async def show_user_plans(callback: CallbackQuery, state: FSMContext):
     await callback.message.edit_text("Выберите свой план:", reply_markup=keyboard)
     await callback.answer()
 
-# Обработчик выбора плана
-@dp.callback_query(F.data.startswith("plan_action:"))
-async def handle_plan_action(callback: CallbackQuery, state: FSMContext):
-    logging.info("Пользователь выбрал план.")
-    current_state = await state.get_state()
+# Обработчик подтверждения удаления плана
+@dp.callback_query(F.data.startswith("confirm_delete_plan:"))
+async def confirm_delete_plan(callback: CallbackQuery):
     _, plan_type, plan_id = callback.data.split(':')
     plan_id = int(plan_id)
     
-    # Получаем план в зависимости от типа
-    if plan_type == 'base':
-        plans = get_base_plan()
-    else:
-        plans = get_user_plan(callback.from_user.id)
+    keyboard = InlineKeyboardMarkup(inline_keyboard=[
+        [
+            InlineKeyboardButton(text="✅ Да, удалить", callback_data=f"delete_plan:{plan_type}:{plan_id}"),
+            InlineKeyboardButton(text="❌ Нет, отмена", callback_data=f"plan_action:{plan_type}:{plan_id}")
+        ]
+    ])
     
-    selected_plan = next((p for p in plans if p['id'] == plan_id), None)
-    if not selected_plan:
-        await callback.answer("План не найден!")
-        return
+    await callback.message.edit_text(
+        "⚠️ Вы уверены, что хотите удалить этот план?\n"
+        "Это действие нельзя будет отменить.",
+        reply_markup=keyboard
+    )
+    await callback.answer()
+
+# Обработчик удаления плана
+@dp.callback_query(F.data.startswith("delete_plan:"))
+async def delete_plan(callback: CallbackQuery):
+    _, plan_type, plan_id = callback.data.split(':')
+    plan_id = int(plan_id)
+    user_id = callback.from_user.id
     
-    # Если мы в процессе создания нового дня
-    if current_state == 'UserState:selecting_existing_plan':
-        # Добавляем текущую дату к плану
-        current_date = datetime.now().strftime("%d.%m.%Y")
-        plan_header = f"📅 {current_date}\n📋 {selected_plan['name']}\n\n"
+    try:
+        # Удаляем план из базы данных
+        delete_user_plan(user_id, plan_id)
         
-        # Разбиваем текст плана на задачи
-        tasks = selected_plan['plan_text'].split('\n')
-        
-        # Сохраняем данные в состояние
-        await state.update_data(
-            selected_plan=selected_plan,
-            tasks=tasks,
-            plan_name=selected_plan['name'],
-            current_date=current_date
-        )
-        
-        # Показываем редактор плана
-        keyboard = InlineKeyboardMarkup(inline_keyboard=[
-            [InlineKeyboardButton(text="✏️ Редактировать задачи", callback_data="edit_tasks")],
-            [InlineKeyboardButton(text="✅ Завершить", callback_data="finish_plan")],
-            [InlineKeyboardButton(text="❌ Отмена", callback_data="cancel_plan_creation")]
-        ])
-        
-        plan_text = plan_header + "\n".join(f"• {task}" for task in tasks)
-        await callback.message.edit_text(plan_text, reply_markup=keyboard)
-    else:
-        # Если просто выбираем план
-        current_date = datetime.now().strftime("%d.%m.%Y")
-        keyboard = InlineKeyboardMarkup(inline_keyboard=[
-            [InlineKeyboardButton(text="📌 Сделать текущим", callback_data=f"set_current_plan:{selected_plan['name']}")],
-            [InlineKeyboardButton(text="◀️ Назад", callback_data="back_to_plan_types")]
-        ])
-        
+        # Показываем сообщение об успешном удалении
         await callback.message.edit_text(
-            f"📅 {current_date}\n"
-            f"✅ План <b>{selected_plan['name']}</b>\n\n"
-            f"Содержание:\n{selected_plan['plan_text']}",
-            parse_mode='HTML',
-            reply_markup=keyboard
+            "✅ План успешно удален!",
+            reply_markup=InlineKeyboardMarkup(inline_keyboard=[
+                [InlineKeyboardButton(text="◀️ К списку планов", callback_data="view_user_plans")]
+            ])
         )
+    except Exception as e:
+        logging.error(f"Ошибка при удалении плана: {e}")
+        await callback.answer("Произошла ошибка при удалении плана", show_alert=True)
     
     await callback.answer()
 

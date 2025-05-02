@@ -185,3 +185,37 @@ def get_active_group_plan(group_id: int) -> Optional[dict]:
             LIMIT 1
         ''', (group_id,))
         return cursor.fetchone()
+
+def delete_user_plan(user_id: int, plan_id: int) -> bool:
+    """Удаляет пользовательский план
+    
+    Args:
+        user_id (int): ID пользователя
+        plan_id (int): ID плана
+        
+    Returns:
+        bool: True если план успешно удален, False если план не найден или не принадлежит пользователю
+    """
+    with get_db_connection() as conn:
+        cursor = conn.cursor()
+        
+        # Проверяем, существует ли план и принадлежит ли он пользователю
+        cursor.execute(
+            'SELECT 1 FROM user_plans WHERE id = ? AND user_id = ?',
+            (plan_id, user_id)
+        )
+        if not cursor.fetchone():
+            return False
+            
+        # Если это текущий план пользователя, удаляем его из current_plans
+        cursor.execute(
+            '''DELETE FROM current_plans 
+               WHERE user_id = ? AND plan_name IN 
+               (SELECT plan_name FROM user_plans WHERE id = ?)''',
+            (user_id, plan_id)
+        )
+        
+        # Удаляем сам план
+        cursor.execute('DELETE FROM user_plans WHERE id = ?', (plan_id,))
+        conn.commit()
+        return True

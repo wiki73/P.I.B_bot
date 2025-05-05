@@ -21,7 +21,13 @@ bot = Bot(token=TOKEN)
 dp = Dispatcher()
 
 # Создаем таблицы в БД при запуске
-create_tables()
+logger.info("Инициализация базы данных...")
+try:
+    create_tables()
+    logger.info("База данных успешно инициализирована")
+except Exception as e:
+    logger.error(f"Ошибка при инициализации базы данных: {e}")
+    raise
 
 # Состояния пользователя
 class UserState(StatesGroup):
@@ -699,6 +705,7 @@ async def start_command(message: Message, state: FSMContext):
     if len(args) > 1 and args[1].startswith('newday_'):
         group_id = int(args[1].split('_')[1])
         await state.update_data(group_id=group_id)
+        await state.set_state(UserState.choosing_plan_type)  # Устанавливаем состояние перед показом опций
         await show_plan_creation_options(message, state)
     else:
         user_id = message.from_user.id
@@ -712,11 +719,27 @@ async def start_command(message: Message, state: FSMContext):
             await show_main_menu(message)
 
 async def show_plan_creation_options(message: Message, state: FSMContext):
-    keyboard = InlineKeyboardMarkup(inline_keyboard=[
+    logger.info("Показываем опции создания плана")
+    current_state = await state.get_state()
+    logger.info(f"Текущее состояние: {current_state}")
+    
+    # Проверяем, есть ли текущий план у пользователя
+    user_id = message.from_user.id
+    current_plan_name = get_current_plan(user_id)
+    logger.info(f"Текущий план пользователя: {current_plan_name}")
+    
+    buttons = []
+    if current_plan_name:
+        logger.info("Добавляем кнопку использования текущего плана")
+        buttons.append([InlineKeyboardButton(text="📌 Использовать текущий план", callback_data="use_current_plan")])
+    
+    buttons.extend([
         [InlineKeyboardButton(text="📋 Использовать существующий план", callback_data="use_existing_plan")],
         [InlineKeyboardButton(text="✨ Создать новый план", callback_data="create_new_plan")],
         [InlineKeyboardButton(text="❌ Отмена", callback_data="cancel_plan_creation")]
     ])
+    
+    keyboard = InlineKeyboardMarkup(inline_keyboard=buttons)
     
     await message.answer(
         "Выберите действие:",
@@ -727,6 +750,7 @@ async def show_plan_creation_options(message: Message, state: FSMContext):
 # Обработчик выбора типа плана
 @dp.callback_query(UserState.choosing_plan_type)
 async def handle_plan_type_choice(callback: CallbackQuery, state: FSMContext):
+    logger.info(f"Обработка выбора типа плана: {callback.data}")
     if callback.data == "use_existing_plan":
         await show_existing_plans(callback, state)
         await state.set_state(UserState.selecting_existing_plan)
@@ -735,6 +759,49 @@ async def handle_plan_type_choice(callback: CallbackQuery, state: FSMContext):
         await state.update_data(current_date=current_date)
         await callback.message.edit_text("📝 Введите название для нового плана на сегодня:")
         await state.set_state(UserState.creating_new_plan)
+    elif callback.data == "use_current_plan":
+        logger.info("Обработка использования текущего плана")
+        user_id = callback.from_user.id
+        current_plan_name = get_current_plan(user_id)
+        
+        if not current_plan_name:
+            await callback.message.edit_text("Ошибка: текущий план не найден.")
+            await callback.answer()
+            return
+        
+        # Получаем текст плана
+        plan_text = get_plan_text_by_name(current_plan_name)
+        if not plan_text:
+            await callback.message.edit_text("Ошибка: не удалось загрузить текущий план.")
+            await callback.answer()
+            return
+        
+        logger.info("План успешно загружен, подготавливаем к редактированию")
+        
+        # Добавляем текущую дату к плану
+        current_date = datetime.now().strftime("%d.%m.%Y")
+        plan_header = f"📅 {current_date}\n📋 {current_plan_name}\n\n"
+        
+        # Разбиваем текст плана на задачи
+        tasks = plan_text.split('\n')
+        
+        # Сохраняем данные в состояние
+        await state.update_data(
+            tasks=tasks,
+            plan_name=current_plan_name,
+            current_date=current_date
+        )
+        
+        # Показываем редактор плана
+        keyboard = InlineKeyboardMarkup(inline_keyboard=[
+            [InlineKeyboardButton(text="✏️ Редактировать задачи", callback_data="edit_tasks")],
+            [InlineKeyboardButton(text="✅ Завершить", callback_data="finish_plan")],
+            [InlineKeyboardButton(text="❌ Отмена", callback_data="cancel_plan_creation")]
+        ])
+        
+        plan_text = plan_header + "\n".join(f"• {task}" for task in tasks)
+        await callback.message.edit_text(plan_text, reply_markup=keyboard)
+        await state.set_state(UserState.editing_plan)
     elif callback.data == "cancel_plan_creation":
         await callback.message.edit_text("Создание плана отменено.")
         await state.clear()

@@ -122,8 +122,9 @@ def save_user_name(user_id, name):
         conn.execute('INSERT OR REPLACE INTO users (user_id, name) VALUES (?, ?)', (user_id, name))
         conn.commit()
 
+
 def get_base_plan():
-    """Получить все базовые планы"""
+
     with get_db_connection() as conn:
         cursor = conn.cursor()
         cursor.execute('SELECT id, name, plan_text FROM base_plans')
@@ -148,7 +149,6 @@ def save_user_plan(user_id, name, text):
         conn.commit()
 
 def get_user_plan(user_id):
-    """Получить все планы пользователя"""
     with get_db_connection() as conn:
         cursor = conn.cursor()
         cursor.execute('''
@@ -157,6 +157,7 @@ def get_user_plan(user_id):
             WHERE user_id = ?
         ''', (user_id,))
         return [dict(row) for row in cursor.fetchall()]
+
 
 def update_user_current_plan(user_id, plan_name):
     """Установить текущий план для пользователя"""
@@ -175,9 +176,10 @@ def get_current_plan(user_id):
         result = cursor.fetchone()
         return result['plan_name'] if result else None
 
+
 def get_plan_text_by_name(plan_name):
-    """Получить текст плана по названию"""
-    with get_db_connection() as conn:
+    """Получить текст плана по названию (ищет в базовых и пользовательских)"""
+connection() as conn:
         cursor = conn.cursor()
         
         # Сначала проверяем базовые планы
@@ -218,7 +220,16 @@ def get_active_group_plan(group_id):
         return cursor.fetchone()
 
 def delete_user_plan(user_id, plan_id):
-    """Удаляет пользовательский план"""
+
+    """Удаляет пользовательский план
+    
+    Args:
+        user_id: ID пользователя
+        plan_id: ID плана
+        
+    Returns:
+        bool: True если план успешно удален, False если план не найден или не принадлежит пользователю
+    """
     with get_db_connection() as conn:
         cursor = conn.cursor()
         
@@ -242,6 +253,7 @@ def delete_user_plan(user_id, plan_id):
         cursor.execute('DELETE FROM user_plans WHERE id = ?', (plan_id,))
         conn.commit()
         return True
+
 
 def save_plan_statistics(user_id, group_id, plan_name, total_tasks, completed_tasks):
     """Сохраняет статистику выполнения плана"""

@@ -108,7 +108,6 @@ def create_tables():
         
         conn.commit()
 
-# Пользователи
 def get_user_name(user_id):
     """Получить имя пользователя по ID"""
     with get_db_connection() as conn:
@@ -123,8 +122,9 @@ def save_user_name(user_id, name):
         conn.execute('INSERT OR REPLACE INTO users (user_id, name) VALUES (?, ?)', (user_id, name))
         conn.commit()
 
-# Базовые планы
+
 def get_base_plan():
+
     with get_db_connection() as conn:
         cursor = conn.cursor()
         cursor.execute('SELECT id, name, plan_text FROM base_plans')
@@ -138,7 +138,6 @@ def get_plan_name_by_id(plan_id):
         result = cursor.fetchone()
         return result['name'] if result else None
 
-# Пользовательские планы
 def save_user_plan(user_id, name, text):
     """Сохраняет пользовательский план"""
     with get_db_connection() as conn:
@@ -159,7 +158,7 @@ def get_user_plan(user_id):
         ''', (user_id,))
         return [dict(row) for row in cursor.fetchall()]
 
-# Текущие планы
+
 def update_user_current_plan(user_id, plan_name):
     """Установить текущий план для пользователя"""
     with get_db_connection() as conn:
@@ -177,10 +176,10 @@ def get_current_plan(user_id):
         result = cursor.fetchone()
         return result['plan_name'] if result else None
 
-# Поиск плана
+
 def get_plan_text_by_name(plan_name):
     """Получить текст плана по названию (ищет в базовых и пользовательских)"""
-    with get_db_connection() as conn:
+connection() as conn:
         cursor = conn.cursor()
         
         # Сначала проверяем базовые планы
@@ -221,6 +220,7 @@ def get_active_group_plan(group_id):
         return cursor.fetchone()
 
 def delete_user_plan(user_id, plan_id):
+
     """Удаляет пользовательский план
     
     Args:
@@ -254,7 +254,7 @@ def delete_user_plan(user_id, plan_id):
         conn.commit()
         return True
 
-# Функции для работы со статистикой
+
 def save_plan_statistics(user_id, group_id, plan_name, total_tasks, completed_tasks):
     """Сохраняет статистику выполнения плана"""
     with get_db_connection() as conn:
@@ -327,8 +327,6 @@ def get_group_completed_tasks(group_id):
     """Получает статистику выполненных задач в группе"""
     with get_db_connection() as conn:
         cursor = conn.cursor()
-        # Добавляем логирование для отладки
-        print(f"Получаем статистику для группы {group_id}")
         cursor.execute('''
             SELECT 
                 SUM(completed_tasks) as total_completed,
@@ -339,9 +337,6 @@ def get_group_completed_tasks(group_id):
             GROUP BY group_id
         ''', (group_id,))
         result = cursor.fetchone()
-        
-        # Добавляем логирование результата
-        print(f"Результат запроса: {result}")
         
         if result is None:
             return {
@@ -356,7 +351,6 @@ def get_group_completed_tasks(group_id):
             'last_update': result['last_update']
         }
 
-# Функции для работы со временем обучения
 def save_study_time(user_id, group_id, study_hours):
     """Сохраняет время обучения"""
     with get_db_connection() as conn:

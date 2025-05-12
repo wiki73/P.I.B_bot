@@ -6,22 +6,14 @@ from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import State, StatesGroup
 import asyncio
 from datetime import datetime
-from dotenv import load_dotenv
-import os
-import logging
+from config import load_config
 from database import *
-from utils import add_back_button
-from keyboards import cancel_plan_creation_keyboard, get_new_day_keyboard, get_view_base_plans_keyboard, personal_keyboard, group_keyboard, main_menu_keyboard,help_keyboard
+from keyboards import *
+from utils import logger, send_message_with_keyboard
 
-logging.basicConfig(level=logging.INFO)
-logger = logging.getLogger(__name__)
-
-load_dotenv()
-TOKEN = os.getenv("TOKEN")
-bot = Bot(token=TOKEN)
+config = load_config()
+bot = Bot(token=config.bot_token)
 dp = Dispatcher()
-
-
 
 @dp.callback_query(F.data == "cancel_plan_creation")
 async def handle_cancel_plan_creation(callback: CallbackQuery, state: FSMContext):
@@ -44,7 +36,6 @@ async def handle_cancel_plan_creation(callback: CallbackQuery, state: FSMContext
     else:
         await callback.message.edit_text(
             "Создание плана отменено.",
-            reply_markup=cancel_plan_creation_keyboard
         )
     
     await state.clear()
@@ -80,17 +71,7 @@ class PlanManagement(StatesGroup):
     adding_task = State()
     waiting_for_study_time = State()
 
-async def send_message_with_keyboard(message: Message, text: str, reply_markup=None, parse_mode=None):
-    base_keyboard = group_keyboard if message.chat.type in ["group", "supergroup"] else personal_keyboard
-    
-    try:
-        if isinstance(reply_markup, InlineKeyboardMarkup):
-            await message.answer(text, reply_markup=reply_markup, parse_mode=parse_mode)
-        else:
-            await message.answer(text, reply_markup=base_keyboard, parse_mode=parse_mode)
-    except Exception as e:
-        logger.error(f"Ошибка при отправке сообщения: {e}")
-        await message.answer(text, reply_markup=base_keyboard)
+
 
 @dp.message(lambda message: message.chat.type == "private" and not message.text.startswith('/'))
 async def private_chat_handler(message: Message, state: FSMContext):
@@ -102,7 +83,7 @@ async def private_chat_handler(message: Message, state: FSMContext):
         )
 
 async def show_main_menu(message: Message):
-    await message.answer("Выберите действие:", reply_markup=main_menu_keyboard)
+    await message.answer("Выберите действие:", reply_markup=main_menu_keyboard())
 
 
 @dp.message(UserState.waiting_for_nickname)
@@ -126,7 +107,7 @@ async def help_command(message: Message):
             "/view_plans - Посмотреть планы"
         )
 
-        await send_message_with_keyboard(message, help_text, reply_markup=help_keyboard)
+        await send_message_with_keyboard(message, help_text, reply_markup=help_keyboard())
     else:
         await send_message_with_keyboard(
             message,
@@ -138,7 +119,7 @@ async def help_command(message: Message):
 @dp.callback_query(F.data == "view_base_plans")
 async def handle_show_base_plans(callback: CallbackQuery):
     base_plans = get_base_plan()
-    keyboard = get_view_base_plans_keyboard(base_plans)
+    keyboard = plans_keyboard(base_plans, 'base')
     callback_message = "Выберите базовый план:"
     
     if not base_plans:
@@ -151,27 +132,19 @@ async def handle_show_base_plans(callback: CallbackQuery):
 async def handle_show_user_plans(callback: CallbackQuery):
     try:
         user_plans = get_user_plan(callback.from_user.id)
+        logger.info('user_plans: ' + user_plans)
         
         if not user_plans:
-            keyboard = InlineKeyboardMarkup(inline_keyboard=add_back_button([
-                [InlineKeyboardButton(text="Создать план", callback_data="create_plan")]
-            ], "back_to_main"))
-            
             await callback.message.edit_text(
                 "У вас пока нет сохранённых планов.",
-                reply_markup=keyboard
+                reply_markup=create_plan_keyboard()
             )
             return
         
-        buttons = [
-            [InlineKeyboardButton(text=plan['name'], callback_data=f"plan_action:user:{plan['id']}")]
-            for plan in user_plans
-        ]
-        keyboard = InlineKeyboardMarkup(inline_keyboard=add_back_button(buttons, "back_to_main"))
         
         await callback.message.edit_text(
             "📁 Ваши планы:",
-            reply_markup=keyboard
+            reply_markup=plans_keyboard(user_plans, 'user')
         )
     except Exception as e:
         logger.error(f"Ошибка при показе планов: {e}")
@@ -179,7 +152,6 @@ async def handle_show_user_plans(callback: CallbackQuery):
 
 @dp.callback_query(F.data.startswith("plan_action:"))
 async def handle_plan_action(callback: CallbackQuery, state: FSMContext):
-    logging.info("Пользователь выбрал план.")
     current_state = await state.get_state()
     _, plan_type, plan_id = callback.data.split(':')
     plan_id = int(plan_id)
@@ -207,26 +179,12 @@ async def handle_plan_action(callback: CallbackQuery, state: FSMContext):
             current_date=current_date
         )
         
-        keyboard = InlineKeyboardMarkup(inline_keyboard=[
-            [InlineKeyboardButton(text="✏️ Редактировать задачи", callback_data="edit_tasks")],
-            [InlineKeyboardButton(text="✅ Завершить", callback_data="finish_plan")],
-            [InlineKeyboardButton(text="❌ Отмена", callback_data="cancel_plan_creation")]
-        ])
-        
         plan_text = plan_header + "\n".join(task for task in tasks)
-        await callback.message.edit_text(plan_text, reply_markup=keyboard)
+        await callback.message.edit_text(plan_text, reply_markup=plan_edit_keyboard())
     else:
         current_date = datetime.now().strftime("%d.%m.%Y")
         
-        buttons = []
-        buttons.append([InlineKeyboardButton(text="📌 Сделать текущим", callback_data=f"set_current_plan:{selected_plan['name']}")])
-        
-        if plan_type == 'user':
-            buttons.append([InlineKeyboardButton(text="🗑 Удалить план", callback_data=f"confirm_delete_plan:{plan_type}:{plan_id}")])
-            
-        buttons.append([InlineKeyboardButton(text="◀️ Назад", callback_data="back_to_plan_types")])
-        
-        keyboard = InlineKeyboardMarkup(inline_keyboard=buttons)
+        keyboard = plan_actions_keyboard(selected_plan['name'], plan_type, plan_id)
         
         await callback.message.edit_text(
             f"📅 {current_date}\n"
@@ -277,10 +235,9 @@ async def handle_existing_plan_choice(callback: CallbackQuery, state: FSMContext
 
 @dp.callback_query(F.data == 'create_plan')
 async def create_plan_start(callback: CallbackQuery, state: FSMContext):
-    keyboard = InlineKeyboardMarkup(inline_keyboard=add_back_button([], "back_to_main"))
     await callback.message.edit_text(
         "📝 Введите название для нового плана:",
-        reply_markup=keyboard
+        reply_markup=create_plan_keyboard
     )
     await state.set_state(PlanCreation.waiting_for_title)
     await callback.answer()
@@ -311,14 +268,8 @@ async def process_new_day_plan_tasks(message: Message, state: FSMContext):
         plan_name=plan_name
     )
     
-    keyboard = InlineKeyboardMarkup(inline_keyboard=[
-        [InlineKeyboardButton(text="✏️ Редактировать задачи", callback_data="edit_tasks")],
-        [InlineKeyboardButton(text="✅ Завершить", callback_data="finish_plan")],
-        [InlineKeyboardButton(text="❌ Отмена", callback_data="cancel_plan_creation")]
-    ])
-    
     plan_text = f"📅 {current_date}\n📋 {plan_name}\n\n" + "\n".join(task for task in tasks)
-    await send_message_with_keyboard(message, plan_text, reply_markup=keyboard)
+    await send_message_with_keyboard(message, plan_text, reply_markup=plan_edit_keyboard())
     await state.set_state(UserState.editing_plan)
 
 @dp.callback_query(F.data == 'current_plan')
@@ -327,23 +278,18 @@ async def show_current_plan(callback: CallbackQuery):
     plan_name = get_current_plan(user_id)
     
     if not plan_name:
-        keyboard = InlineKeyboardMarkup(inline_keyboard=add_back_button([], "back_to_main"))
-        await callback.message.edit_text("У вас нет активного плана.", reply_markup=keyboard)
+        await callback.message.edit_text("У вас нет активного плана.", reply_markup=back_keyboard())
         await callback.answer()
         return
 
     plan_text = get_plan_text_by_name(plan_name)
     if plan_text:
-        keyboard = InlineKeyboardMarkup(inline_keyboard=add_back_button([
-            [InlineKeyboardButton(text="✏️ Редактировать", callback_data="edit_current_plan")]
-        ], "back_to_main"))
         await callback.message.edit_text(
             f"📋 Текущий план: {plan_name}\n\n{plan_text}",
-            reply_markup=keyboard
+            reply_markup=current_plan_keyboard()
         )
     else:
-        keyboard = InlineKeyboardMarkup(inline_keyboard=add_back_button([], "back_to_main"))
-        await callback.message.edit_text("Не удалось загрузить план.", reply_markup=keyboard)
+        await callback.message.edit_text("Не удалось загрузить план.", reply_markup=back_keyboard())
     await callback.answer()
 
 @dp.message(Command('info'))
@@ -474,12 +420,12 @@ async def view_plans_command(message: types.Message, state: FSMContext):
     await state.set_state(PlanView.viewing_plans)
 
 @dp.callback_query()
-async def handle_callback_query(callback: CallbackQuery, state: FSMContext):
+async def handle_callback_query(callback: CallbackQuery ):
     try:
         if callback.message.chat.type == "private":
             await callback.message.answer(
                 "Используйте меню для быстрого доступа:",
-                reply_markup=personal_keyboard
+                reply_markup=personal_keyboard()
             )
     except Exception as e:
         logger.error(f"Ошибка при обработке callback: {e}")
@@ -488,7 +434,6 @@ async def handle_callback_query(callback: CallbackQuery, state: FSMContext):
 
 @dp.callback_query(F.data == "view_base_plans", PlanView.viewing_plans)
 async def show_base_plans(callback: types.CallbackQuery):
-    logging.info("Пользователь выбрал базовые планы.")
     base_plans = get_base_plan()
     
     if not base_plans:
@@ -521,7 +466,6 @@ async def show_base_plans(callback: types.CallbackQuery):
 
 @dp.callback_query(F.data == "view_user_plans", PlanView.viewing_plans)
 async def show_user_plans(callback: types.CallbackQuery, state: FSMContext):
-    logging.info("Пользователь выбрал свои планы.")
     user_plans = get_user_plan(callback.from_user.id)
     if not user_plans:
         await callback.message.answer("У вас пока нет сохраненных планов.")
@@ -644,7 +588,7 @@ async def new_day_group(message: Message, state: FSMContext):
             message,
             f"🌅 {message.from_user.mention_html()} начинает новый день!\n"
             "Нажмите кнопку ниже, чтобы создать личный план ↓",
-            reply_markup=get_new_day_keyboard(bot_username, message.chat.id),
+            reply_markup=new_day_keyboard(bot_username, message.chat.id),
             parse_mode="HTML"
         )
     except Exception as e:
@@ -662,9 +606,10 @@ async def cancel_new_day(callback: CallbackQuery):
 
 @dp.message(CommandStart())
 async def start_command(message: Message, state: FSMContext):
-    args = message.text.split()
-    if len(args) > 1 and args[1].startswith('newday_'):
-        group_id = int(args[1].split('_')[1])
+    args = message.text.split()[1:]
+    logger.info('/start args: ' + str(args))
+    if len(args) > 0:
+        group_id = int(args[0].split('_')[1])
 
         await state.update_data(group_id=group_id)
         await state.set_state(UserState.choosing_plan_type)
@@ -687,39 +632,18 @@ async def start_command(message: Message, state: FSMContext):
             await show_main_menu(message)
 
 async def show_plan_creation_options(message: Message, state: FSMContext):
-    logger.info("Показываем опции создания плана")
-    data = await state.get_data()
-    
-    current_state = await state.get_state()
-    logger.info(f"Текущее состояние: {current_state}")
-    
     user_id = message.from_user.id
-    current_plan_name = get_current_plan(user_id)
-    logger.info(f"Текущий план пользователя: {current_plan_name}")
-    
-    buttons = []
-    if current_plan_name:
-        logger.info("Добавляем кнопку использования текущего плана")
-        buttons.append([InlineKeyboardButton(text="📌 Использовать текущий план", callback_data="use_current_plan")])
-    
-    buttons.extend([
-        [InlineKeyboardButton(text="📋 Использовать существующий план", callback_data="use_existing_plan")],
-        [InlineKeyboardButton(text="✨ Создать новый план", callback_data="create_new_plan")],
-        [InlineKeyboardButton(text="❌ Отмена", callback_data="cancel_plan_creation")]
-    ])
-    
-    keyboard = InlineKeyboardMarkup(inline_keyboard=buttons)
+    current_plan_name: str | None = get_current_plan(user_id)
     
     await send_message_with_keyboard(
         message,
         "Выберите действие:",
-        reply_markup=keyboard
+        reply_markup=plan_creation_options_keyboard(current_plan_name)
     )
     await state.set_state(UserState.choosing_plan_type)
 
 @dp.callback_query(UserState.choosing_plan_type)
 async def handle_plan_type_choice(callback: CallbackQuery, state: FSMContext):
-    logger.info(f"Обработка выбора типа плана: {callback.data}")
     data = await state.get_data()
     
     if callback.data == "use_existing_plan":
@@ -732,7 +656,6 @@ async def handle_plan_type_choice(callback: CallbackQuery, state: FSMContext):
         await callback.message.edit_text("📝 Введите название для нового плана на сегодня:")
         await state.set_state(UserState.creating_new_plan)
     elif callback.data == "use_current_plan":
-        logger.info("Обработка использования текущего плана")
         user_id = callback.from_user.id
         current_plan_name = get_current_plan(user_id)
         
@@ -747,8 +670,6 @@ async def handle_plan_type_choice(callback: CallbackQuery, state: FSMContext):
             await callback.answer()
             return
         
-        logger.info("План успешно загружен, подготавливаем к редактированию")
-        
         current_date = datetime.now().strftime("%d.%m.%Y")
         plan_header = f"📅 {current_date}\n📋 {current_plan_name}\n\n"
         
@@ -761,14 +682,9 @@ async def handle_plan_type_choice(callback: CallbackQuery, state: FSMContext):
         })
         await state.set_data(data)
         
-        keyboard = InlineKeyboardMarkup(inline_keyboard=[
-            [InlineKeyboardButton(text="✏️ Редактировать задачи", callback_data="edit_tasks")],
-            [InlineKeyboardButton(text="✅ Завершить", callback_data="finish_plan")],
-            [InlineKeyboardButton(text="❌ Отмена", callback_data="cancel_plan_creation")]
-        ])
-        
         plan_text = plan_header + "\n".join(task for task in tasks)
-        await callback.message.edit_text(plan_text, reply_markup=keyboard)
+
+        await callback.message.edit_text(plan_text, reply_markup=plan_edit_keyboard())
         await state.set_state(UserState.editing_plan)
     elif callback.data == "cancel_plan_creation":
         await handle_cancel_plan_creation(callback, state)
@@ -781,20 +697,11 @@ async def start_task_editing(callback: CallbackQuery, state: FSMContext):
     tasks = data.get('tasks', [])
     current_date = data.get('current_date')
     plan_name = data.get('plan_name')
-    
-    buttons = [
-        [InlineKeyboardButton(text=f"✏️ Изменить задачу {i+1}", callback_data=f"edit_task_{i}")]
-        for i in range(len(tasks))
-    ]
-    buttons.append([InlineKeyboardButton(text="➕ Добавить пункт", callback_data="add_new_task")])
-    
-    keyboard = InlineKeyboardMarkup(inline_keyboard=add_back_button(buttons, "back_to_plan"))
-    
     plan_text = f"📅 {current_date}\n📋 {plan_name}\n\n"
     plan_text += "Текущие задачи:\n" + "\n".join(task for task in tasks)
     plan_text += "\n\nВыберите действие:"
     
-    await callback.message.edit_text(plan_text, reply_markup=keyboard)
+    await callback.message.edit_text(plan_text, reply_markup=task_edit_keyboard(tasks))
     await state.set_state(UserState.editing_plan)
     await callback.answer()
 
@@ -803,325 +710,11 @@ async def add_new_task(callback: CallbackQuery, state: FSMContext):
     data = await state.get_data()
     tasks = data.get('tasks', [])
     
-    keyboard = InlineKeyboardMarkup(inline_keyboard=[
-        [InlineKeyboardButton(text=f"Добавить после пункта {i+1}", callback_data=f"add_at_{i+1}")]
-        for i in range(len(tasks))
-    ] + [
-        [InlineKeyboardButton(text="Добавить в начало", callback_data="add_at_0")],
-        [InlineKeyboardButton(text="◀️ Назад", callback_data="edit_tasks")]
-    ])
-    
     await callback.message.edit_text(
         "Выберите, куда добавить новый пункт:",
-        reply_markup=keyboard
+        reply_markup=task_position_keyboard(tasks)
     )
     await callback.answer()
-
-@dp.callback_query(F.data.startswith("add_at_"))
-async def select_task_position(callback: CallbackQuery, state: FSMContext):
-    position = int(callback.data.split('_')[-1])
-    await state.update_data(new_task_position=position)
-    await callback.message.edit_text("Введите текст нового пункта:")
-    await state.set_state(UserState.adding_new_task)
-    await callback.answer()
-
-async def show_task_editor(chat_id: int, state: FSMContext):
-    data = await state.get_data()
-    tasks = data.get('tasks', [])
-    current_date = data.get('current_date')
-    plan_name = data.get('plan_name')
-    
-    keyboard = InlineKeyboardMarkup(inline_keyboard=[
-        [InlineKeyboardButton(text=f"✏️ Изменить задачу {i+1}", callback_data=f"edit_task_{i}")]
-        for i in range(len(tasks))
-    ] + [
-        [InlineKeyboardButton(text="➕ Добавить пункт", callback_data="add_new_task")],
-        [InlineKeyboardButton(text="◀️ Назад к плану", callback_data="back_to_plan")]
-    ])
-    
-    plan_text = f"📅 {current_date}\n📋 {plan_name}\n\n"
-    plan_text += "Текущие задачи:\n" + "\n".join(task for task in tasks)
-    plan_text += "\n\nВыберите действие:"
-    
-    await bot.send_message(
-        chat_id=chat_id,
-        text=plan_text,
-        reply_markup=keyboard
-    )
-
-@dp.message(PlanManagement.adding_task)
-async def process_new_task(message: Message, state: FSMContext):
-    try:
-        data = await state.get_data()
-        tasks = data.get('tasks', [])
-        
-        tasks.append(message.text)
-        await state.update_data({'tasks': tasks})
-        
-        header = data['header']
-        full_plan = f"{header}\n" + "\n".join(tasks)
-        
-        await message.bot.edit_message_text(
-            chat_id=data['chat_id'],
-            message_id=data['message_id'],
-            text=full_plan,
-            reply_markup=get_management_keyboard()
-        )
-        
-        await state.set_state(PlanManagement.managing_plan)
-    except Exception as e:
-        logger.error(f"Ошибка в process_new_task: {e}")
-        await message.answer("Ошибка при добавлении пункта")
-
-@dp.callback_query(F.data == "back_to_plan")
-async def back_to_plan(callback: CallbackQuery, state: FSMContext):
-    data = await state.get_data()
-    tasks = data.get('tasks', [])
-    current_date = data.get('current_date')
-    plan_name = data.get('plan_name')
-    
-    keyboard = InlineKeyboardMarkup(inline_keyboard=[
-        [InlineKeyboardButton(text="✏️ Редактировать задачи", callback_data="edit_tasks")],
-        [InlineKeyboardButton(text="✅ Завершить", callback_data="finish_plan")],
-        [InlineKeyboardButton(text="❌ Отмена", callback_data="cancel_plan_creation")]
-    ])
-    
-    plan_text = f"📅 {current_date}\n📋 {plan_name}\n\n" + "\n".join(task for task in tasks)
-    await callback.message.edit_text(plan_text, reply_markup=keyboard)
-    await callback.answer()
-
-@dp.callback_query(UserState.editing_plan, F.data.startswith("edit_task_"))
-async def edit_task(callback: CallbackQuery, state: FSMContext):
-    task_index = int(callback.data.split('_')[-1])
-    data = await state.get_data()
-    tasks = data.get('tasks', [])
-    
-    await state.update_data(editing_task_index=task_index)
-    
-    current_task = tasks[task_index]
-    await callback.message.edit_text(
-        f"📝 Редактирование задачи {task_index + 1}:\n\n"
-        f"Текущий текст:\n{current_task}\n\n"
-        "Введите новый текст для этой задачи:"
-    )
-    await callback.answer()
-
-@dp.message(UserState.editing_plan)
-async def process_task_edit(message: Message, state: FSMContext):
-    data = await state.get_data()
-    tasks = data.get('tasks', [])
-    task_index = data.get('editing_task_index')
-    current_date = data.get('current_date')
-    plan_name = data.get('plan_name')
-    
-    tasks[task_index] = message.text
-    await state.update_data(tasks=tasks)
-    
-    keyboard = InlineKeyboardMarkup(inline_keyboard=[
-        [InlineKeyboardButton(text="✏️ Редактировать задачи", callback_data="edit_tasks")],
-        [InlineKeyboardButton(text="✅ Завершить", callback_data="finish_plan")],
-        [InlineKeyboardButton(text="❌ Отмена", callback_data="cancel_plan_creation")]
-    ])
-    
-    plan_text = f"📅 {current_date}\n📋 {plan_name}\n\n" + "\n".join(task for task in tasks)
-    await send_message_with_keyboard(message, plan_text, reply_markup=keyboard)
-
-@dp.callback_query(F.data == "finish_plan")
-async def finish_plan_editing(callback: CallbackQuery, state: FSMContext):
-    data = await state.get_data()
-    tasks = data.get('tasks', [])
-    current_date = data.get('current_date')
-    plan_name = data.get('plan_name')
-    
-    keyboard = InlineKeyboardMarkup(inline_keyboard=[
-        [InlineKeyboardButton(text="✅ Опубликовать", callback_data="publish_plan")],
-        [InlineKeyboardButton(text="❌ Отмена", callback_data="cancel_plan_creation")]
-    ])
-    
-    plan_text = f"📅 {current_date}\n📋 {plan_name}\n\n" + "\n".join(task for task in tasks)
-    await callback.message.edit_text(
-        plan_text + "\n\nХотите опубликовать этот план в группу?",
-        reply_markup=keyboard
-    )
-    await state.set_state(UserState.publishing_plan)
-    await callback.answer()
-
-@dp.callback_query(UserState.publishing_plan, F.data == "publish_plan")
-async def publish_plan(callback: CallbackQuery, state: FSMContext):
-    data = await state.get_data()
-    tasks = data.get('tasks', [])
-    current_date = data.get('current_date')
-    plan_name = data.get('plan_name')
-    group_id = data.get('group_id')
-    
-    plan_text = f"📅 {current_date}\n📋 {plan_name}\n\n" + "\n".join(task for task in tasks)
-    
-    keyboard = InlineKeyboardMarkup(inline_keyboard=[
-        [InlineKeyboardButton(
-            text="⚙️ Управление планом",
-            callback_data=f"manage_plan:{callback.from_user.id}"
-        )]
-    ])
-    
-    await bot.send_message(
-        chat_id=group_id,
-        text=f"🌅 {callback.from_user.mention_html()} опубликовал свой план на сегодня:\n\n{plan_text}",
-        parse_mode="HTML",
-        reply_markup=keyboard
-    )
-    
-    await callback.message.edit_text("✅ План успешно опубликован в группу!")
-    await state.clear()
-    await callback.answer()
-
-async def show_plan_editor(message: Message, state: FSMContext, plan_data: dict):
-    tasks = plan_data['plan_text'].split('\n')
-    
-    await state.update_data(
-        selected_plan=plan_data,
-        tasks=tasks,
-        plan_name=plan_data['name']
-    )
-    
-    keyboard = InlineKeyboardMarkup(inline_keyboard=[
-        [InlineKeyboardButton(text="✏️ Редактировать задачи", callback_data="edit_tasks")],
-        [InlineKeyboardButton(text="✅ Завершить", callback_data="finish_plan")],
-        [InlineKeyboardButton(text="❌ Отмена", callback_data="cancel_plan_creation")]
-    ])
-    
-    plan_text = "📋 Ваш план:\n\n" + "\n".join(task for task in tasks)
-    await message.edit_text(plan_text, reply_markup=keyboard)
-
-@dp.callback_query(UserState.choosing_plan_type, F.data == "use_existing_plan")
-async def show_existing_plans(callback: CallbackQuery, state: FSMContext):
-    keyboard = InlineKeyboardMarkup(inline_keyboard=[
-        [InlineKeyboardButton(text="Базовые планы", callback_data="select_base_plans")],
-        [InlineKeyboardButton(text="Мои планы", callback_data="select_user_plans")]
-    ])
-    
-    await callback.message.edit_text("Выберите тип существующего плана:", reply_markup=keyboard)
-    await callback.answer()
-
-@dp.callback_query(F.data == "select_base_plans")
-async def show_base_plans(callback: CallbackQuery):
-    logging.info("Обработчик show_base_plans вызван.")
-    base_plans = get_base_plan()  # Получаем базовые планы
-    
-    if not base_plans:
-        await callback.message.edit_text("Базовые планы не найдены.")
-        await callback.answer()
-        return
-
-    keyboard = InlineKeyboardMarkup(inline_keyboard=[
-        [InlineKeyboardButton(text=plan['name'], callback_data=f"plan_action:base:{plan['id']}")]
-        for plan in base_plans
-    ])
-    
-    await callback.message.edit_text("Выберите базовый план:", reply_markup=keyboard)
-    await callback.answer()
-
-@dp.callback_query(F.data == "select_user_plans")
-async def show_user_plans(callback: CallbackQuery, state: FSMContext):
-    logging.info("Пользователь выбрал свои планы.")
-    user_plans = get_user_plan(callback.from_user.id)
-    
-    if not user_plans:
-        await callback.message.answer("У вас пока нет сохраненных планов.")
-        await callback.answer()
-        return
-
-    keyboard = InlineKeyboardMarkup(inline_keyboard=[
-        [InlineKeyboardButton(text=plan['name'], callback_data=f"plan_action:user:{plan['id']}")]
-        for plan in user_plans
-    ])
-    
-    await callback.message.edit_text("Выберите свой план:", reply_markup=keyboard)
-    await callback.answer()
-
-@dp.callback_query(F.data.startswith("confirm_delete_plan:"))
-async def confirm_delete_plan(callback: CallbackQuery):
-    _, plan_type, plan_id = callback.data.split(':')
-    plan_id = int(plan_id)
-    
-    keyboard = InlineKeyboardMarkup(inline_keyboard=[
-        [
-            InlineKeyboardButton(text="✅ Да, удалить", callback_data=f"delete_plan:{plan_type}:{plan_id}"),
-            InlineKeyboardButton(text="❌ Нет, отмена", callback_data=f"plan_action:{plan_type}:{plan_id}")
-        ]
-    ])
-    
-    await callback.message.edit_text(
-        "⚠️ Вы уверены, что хотите удалить этот план?\n"
-        "Это действие нельзя будет отменить.",
-        reply_markup=keyboard
-    )
-    await callback.answer()
-
-@dp.callback_query(F.data.startswith("delete_plan:"))
-async def delete_plan(callback: CallbackQuery):
-    _, _, plan_id = callback.data.split(':')
-    plan_id = int(plan_id)
-    user_id = callback.from_user.id
-    
-    try:
-        delete_user_plan(user_id, plan_id)
-        await callback.message.edit_text(
-            "✅ План успешно удален!",
-            reply_markup=InlineKeyboardMarkup(inline_keyboard=[
-                [InlineKeyboardButton(text="◀️ К списку планов", callback_data="view_user_plans")]
-            ])
-        )
-    except Exception as e:
-        logging.error(f"Ошибка при удалении плана: {e}")
-        await callback.answer("Произошла ошибка при удалении плана", show_alert=True)
-    
-    await callback.answer()
-
-@dp.callback_query(F.data.startswith("set_current_plan:"))
-async def set_current_plan(callback: CallbackQuery):
-    plan_name = callback.data.split(':')[1]
-    user_id = callback.from_user.id
-    
-    update_user_current_plan(user_id, plan_name)
-    
-    await callback.message.edit_text(
-        f"✅ План <b>{plan_name}</b> установлен как текущий!",
-        parse_mode='HTML'
-    )
-    await callback.answer("План успешно установлен как текущий!")
-
-@dp.callback_query(F.data.startswith("manage_plan:"))
-async def manage_plan_handler(callback: CallbackQuery, state: FSMContext):
-    try:
-        plan_text = callback.message.text
-        lines = plan_text.split('\n')
-        header = "\n".join(lines[:2])
-        tasks = [line.strip() for line in lines[2:] if line.strip()]
-        
-        await state.update_data({
-            'header': header,
-            'tasks': tasks,
-            'message_id': callback.message.message_id,
-            'chat_id': callback.message.chat.id
-        })
-        
-        await show_management_menu(callback.message)
-        await state.set_state(PlanManagement.managing_plan)
-    except Exception as e:
-        logger.error(f"Ошибка в manage_plan_handler: {e}")
-        await callback.answer("Ошибка при обработке плана", show_alert=True)
-    finally:
-        await callback.answer()
-
-async def show_management_menu(message: Message):
-    keyboard = InlineKeyboardMarkup(inline_keyboard=[
-        [InlineKeyboardButton(text="✅ Отметить пункты", callback_data="mark_tasks"),
-         InlineKeyboardButton(text="💬 Комментарии", callback_data="task_comments")],
-        [InlineKeyboardButton(text="✏️ Редактировать", callback_data="edit_plan")],
-        [InlineKeyboardButton(text="🌙 Завершить день", callback_data="finish_day")],
-        [InlineKeyboardButton(text="❌ Закрыть", callback_data="close_management")]
-    ])
-    await message.edit_reply_markup(reply_markup=keyboard)
 
 @dp.callback_query(PlanManagement.managing_plan, F.data == "mark_tasks")
 async def start_marking_tasks(callback: CallbackQuery, state: FSMContext):
@@ -1129,24 +722,11 @@ async def start_marking_tasks(callback: CallbackQuery, state: FSMContext):
         data = await state.get_data()
         tasks = data['tasks']
         
-        keyboard = InlineKeyboardBuilder()
-        for i, task in enumerate(tasks):
-            clean_task = task.replace('✅', '').strip()
-            prefix = "✓ " if '✅' in task else f"{i+1}."
-            keyboard.add(InlineKeyboardButton(
-                text=f"{prefix} {clean_task}",
-                callback_data=f"toggle_{i}"
-            ))
-        
-        keyboard.adjust(1)
-        keyboard.row(InlineKeyboardButton(
-            text="🔙 Назад",
-            callback_data="back_to_manage"
-        ))
+        keyboard = task_marking_keyboard(tasks)
         
         await callback.message.edit_text(
             "Выберите пункты для отметки:\n(✓ - отмеченные)",
-            reply_markup=keyboard.as_markup()
+            reply_markup=keyboard
         )
         await state.set_state(PlanManagement.marking_tasks)
     except Exception as e:
@@ -1155,55 +735,21 @@ async def start_marking_tasks(callback: CallbackQuery, state: FSMContext):
     finally:
         await callback.answer()
 
-@dp.callback_query(PlanManagement.marking_tasks, F.data.startswith("toggle_"))
-async def toggle_task_mark(callback: CallbackQuery, state: FSMContext):
+@dp.callback_query(PlanManagement.managing_plan, F.data == "task_comments")
+async def task_comments_handler(callback: CallbackQuery, state: FSMContext):
     try:
-        task_index = int(callback.data.split('_')[1])
         data = await state.get_data()
         tasks = data['tasks']
         
-        if task_index >= len(tasks):
-            await callback.answer("Неверный номер пункта", show_alert=True)
-            return
-        
-        original_task = tasks[task_index]
-        
-        if '✅' in original_task:
-            new_task = original_task.replace('✅', '').strip()
-        else:
-            new_task = f"✅ {original_task.replace('✅', '').strip()}"
-        
-        if new_task == original_task:
-            await callback.answer()
-            return
-            
-        tasks[task_index] = new_task
-        await state.update_data({'tasks': tasks})
-        
-        keyboard = InlineKeyboardBuilder()
-        for i, task in enumerate(tasks):
-            clean_task = task.replace('✅', '').strip()
-            prefix = "✓ " if '✅' in task else f"{i+1}."
-            keyboard.add(InlineKeyboardButton(
-                text=f"{prefix} {clean_task}",
-                callback_data=f"toggle_{i}"
-            ))
-        
-        keyboard.adjust(1)
-        keyboard.row(InlineKeyboardButton(
-            text="🔙 Назад",
-            callback_data="back_to_manage"
-        ))
-        
-        try:
-            await callback.message.edit_reply_markup(reply_markup=keyboard.as_markup())
-            await callback.answer(f"Пункт {task_index+1} обновлен")
-        except:
-            await callback.answer()
-            
+        await callback.message.edit_text(
+            "Выберите пункт для добавления комментария:",
+            reply_markup=task_comments_keyboard(tasks)
+        )
     except Exception as e:
-        logger.error(f"Ошибка в toggle_task_mark: {e}")
-        await callback.answer("Ошибка при обновлении", show_alert=True)
+        logger.error(f"Ошибка в task_comments_handler: {e}")
+        await callback.answer("Ошибка при загрузке задач", show_alert=True)
+    finally:
+        await callback.answer()
 
 @dp.callback_query(F.data == "back_to_manage")
 async def back_to_management(callback: CallbackQuery, state: FSMContext):
@@ -1215,7 +761,7 @@ async def back_to_management(callback: CallbackQuery, state: FSMContext):
         full_plan = f"{header}\n" + "\n".join(tasks)
         await callback.message.edit_text(
             full_plan,
-            reply_markup=get_management_keyboard()
+            reply_markup=management_keyboard()
         )
         await state.set_state(PlanManagement.managing_plan)
     except Exception as e:
@@ -1223,15 +769,6 @@ async def back_to_management(callback: CallbackQuery, state: FSMContext):
         await callback.answer("Ошибка при возврате", show_alert=True)
     finally:
         await callback.answer()
-
-def get_management_keyboard():
-    return InlineKeyboardMarkup(inline_keyboard=[
-        [InlineKeyboardButton(text="✅ Отметить пункты", callback_data="mark_tasks"),
-         InlineKeyboardButton(text="💬 Комментарии", callback_data="task_comments")],
-        [InlineKeyboardButton(text="✏️ Редактировать", callback_data="edit_plan")],
-        [InlineKeyboardButton(text="🌙 Завершить день", callback_data="finish_day")],
-        [InlineKeyboardButton(text="❌ Закрыть", callback_data="close_management")]
-    ])
 
 @dp.callback_query(PlanManagement.managing_plan, F.data == "close_management")
 async def close_management(callback: CallbackQuery, state: FSMContext):
@@ -1243,36 +780,6 @@ async def close_management(callback: CallbackQuery, state: FSMContext):
     finally:
         await callback.answer()
 
-
-@dp.callback_query(PlanManagement.managing_plan, F.data == "task_comments")
-async def task_comments_handler(callback: CallbackQuery, state: FSMContext):
-    try:
-        data = await state.get_data()
-        tasks = data['tasks']
-        
-        keyboard = InlineKeyboardBuilder()
-        for i, task in enumerate(tasks):
-            clean_task = task.replace('✅', '').strip()
-            keyboard.add(InlineKeyboardButton(
-                text=f"{i+1}. {clean_task[:20]}...",
-                callback_data=f"comment_task_{i}"
-            ))
-        
-        keyboard.adjust(1)
-        keyboard.row(InlineKeyboardButton(
-            text="🔙 Назад",
-            callback_data="back_to_manage"
-        ))
-        
-        await callback.message.edit_text(
-            "Выберите пункт для добавления комментария:",
-            reply_markup=keyboard.as_markup()
-        )
-    except Exception as e:
-        logger.error(f"Ошибка в task_comments_handler: {e}")
-        await callback.answer("Ошибка при загрузке задач", show_alert=True)
-    finally:
-        await callback.answer()
 
 @dp.callback_query(F.data.startswith("comment_task_"))
 async def select_task_for_comment(callback: CallbackQuery, state: FSMContext):
@@ -1317,7 +824,7 @@ async def process_comment(message: Message, state: FSMContext):
             chat_id=data['chat_id'],
             message_id=data['message_id'],
             text=full_plan,
-            reply_markup=get_management_keyboard()
+            reply_markup=management_keyboard()
         )
         
         await state.set_state(PlanManagement.managing_plan)
@@ -1414,7 +921,7 @@ async def process_task_edit(message: Message, state: FSMContext):
             chat_id=data['chat_id'],
             message_id=data['message_id'],
             text=full_plan,
-            reply_markup=get_management_keyboard()
+            reply_markup=management_keyboard()
         )
         
         await message.answer("Пункт успешно обновлен!")
@@ -1452,7 +959,7 @@ async def process_new_task(message: Message, state: FSMContext):
             chat_id=data['chat_id'],
             message_id=data['message_id'],
             text=full_plan,
-            reply_markup=get_management_keyboard()
+            reply_markup=management_keyboard()
         )
         
         await state.set_state(PlanManagement.managing_plan)
@@ -1463,13 +970,7 @@ async def process_new_task(message: Message, state: FSMContext):
 @dp.callback_query(F.data == "back_to_main")
 async def back_to_main_menu(callback: CallbackQuery, state: FSMContext):
     await state.clear()
-    keyboard = InlineKeyboardMarkup(inline_keyboard=[
-        [InlineKeyboardButton(text="Мои планы", callback_data="view_user_plans")],
-        [InlineKeyboardButton(text="Базовые планы", callback_data="view_base_plans")],
-        [InlineKeyboardButton(text="Создать план", callback_data="create_plan")],
-        [InlineKeyboardButton(text="Текущий план", callback_data="current_plan")]
-    ])
-    await callback.message.edit_text("Выберите действие:", reply_markup=keyboard)
+    await callback.message.edit_text("Выберите действие:", reply_markup=main_menu_keyboard())
     await callback.answer()
 
 @dp.callback_query(F.data == "edit_current_plan")
@@ -1478,15 +979,13 @@ async def edit_current_plan(callback: CallbackQuery, state: FSMContext):
     plan_name = get_current_plan(user_id)
     
     if not plan_name:
-        keyboard = InlineKeyboardMarkup(inline_keyboard=add_back_button([], "back_to_main"))
-        await callback.message.edit_text("План не найден.", reply_markup=keyboard)
+        await callback.message.edit_text("План не найден.", reply_markup=back_keyboard())
         await callback.answer()
         return
     
     plan_text = get_plan_text_by_name(plan_name)
     if not plan_text:
-        keyboard = InlineKeyboardMarkup(inline_keyboard=add_back_button([], "back_to_main"))
-        await callback.message.edit_text("Не удалось загрузить план.", reply_markup=keyboard)
+        await callback.message.edit_text("Не удалось загрузить план.", reply_markup=back_keyboard())
         await callback.answer()
         return
     
@@ -1499,13 +998,8 @@ async def edit_current_plan(callback: CallbackQuery, state: FSMContext):
         current_date=current_date
     )
     
-    keyboard = InlineKeyboardMarkup(inline_keyboard=add_back_button([
-        [InlineKeyboardButton(text="✏️ Редактировать задачи", callback_data="edit_tasks")],
-        [InlineKeyboardButton(text="✅ Сохранить", callback_data="save_current_plan")]
-    ], "back_to_main"))
-    
     plan_text = f"📅 {current_date}\n📋 {plan_name}\n\n" + "\n".join(f"• {task}" for task in tasks)
-    await callback.message.edit_text(plan_text, reply_markup=keyboard)
+    await callback.message.edit_text(plan_text, reply_markup=plan_editor_keyboard())
     await state.set_state(UserState.editing_plan)
     await callback.answer()
 
@@ -1515,11 +1009,10 @@ async def save_current_plan(callback: CallbackQuery, state: FSMContext):
     tasks = data.get('tasks', [])
     plan_name = data.get('plan_name')
     plan_text = "\n".join(tasks)
-    keyboard = InlineKeyboardMarkup(inline_keyboard=add_back_button([], "back_to_main"))
 
     save_user_plan(callback.from_user.id, plan_name, plan_text)
     
-    await callback.message.edit_text("✅ План успешно сохранен!", reply_markup=keyboard)
+    await callback.message.edit_text("✅ План успешно сохранен!", reply_markup=back_keyboard)
     await state.clear()
     await callback.answer()
 

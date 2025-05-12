@@ -3,20 +3,17 @@ from contextlib import contextmanager
 
 @contextmanager
 def get_db_connection():
-    """Контекстный менеджер для подключения к БД"""
     conn = sqlite3.connect('plans.db')
-    conn.row_factory = sqlite3.Row  # Для доступа к полям по именам
+    conn.row_factory = sqlite3.Row 
     try:
         yield conn
     finally:
         conn.close()
 
 def create_tables():
-    """Создание всех таблиц при первом запуске"""
     with get_db_connection() as conn:
         cursor = conn.cursor()
         
-        # Пользователи
         cursor.execute('''
         CREATE TABLE IF NOT EXISTS users (
             user_id INTEGER PRIMARY KEY,
@@ -24,7 +21,6 @@ def create_tables():
             registration_date TEXT DEFAULT CURRENT_TIMESTAMP
         )''')
         
-        # Базовые планы
         cursor.execute('''
         CREATE TABLE IF NOT EXISTS base_plans (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -32,7 +28,6 @@ def create_tables():
             plan_text TEXT NOT NULL
         )''')
         
-        # Пользовательские планы
         cursor.execute('''
         CREATE TABLE IF NOT EXISTS user_plans (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -44,7 +39,6 @@ def create_tables():
             FOREIGN KEY (user_id) REFERENCES users(user_id)
         )''')
         
-        # Планы групп
         cursor.execute('''
         CREATE TABLE IF NOT EXISTS group_plans (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -54,7 +48,6 @@ def create_tables():
             UNIQUE(group_id, plan_id)
         )''')
         
-        # Текущие планы
         cursor.execute('''
         CREATE TABLE IF NOT EXISTS current_plans (
             user_id INTEGER PRIMARY KEY,
@@ -62,7 +55,6 @@ def create_tables():
             FOREIGN KEY (user_id) REFERENCES users(user_id)
         )''')
         
-        # Статистика выполнения планов
         cursor.execute('''
         CREATE TABLE IF NOT EXISTS plan_statistics (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -75,7 +67,6 @@ def create_tables():
             FOREIGN KEY (user_id) REFERENCES users(user_id)
         )''')
         
-        # Таблица статистики
         cursor.execute('''
         CREATE TABLE IF NOT EXISTS completed_tasks_stats (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -86,7 +77,6 @@ def create_tables():
             FOREIGN KEY (user_id) REFERENCES users(user_id)
         )''')
         
-        # Таблица времени обучения
         cursor.execute('''
         CREATE TABLE IF NOT EXISTS study_time_stats (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -97,7 +87,6 @@ def create_tables():
             FOREIGN KEY (user_id) REFERENCES users(user_id)
         )''')
         
-        # Добавляем демо-планы, если таблица пуста
         if not cursor.execute('SELECT 1 FROM base_plans LIMIT 1').fetchone():
             default_plans = [
                 ("Стандартный день", "Утро:\n- Зарядка\n- Завтрак\n\nРабота:\n- Важные задачи\n- Встречи\n\nВечер:\n- Отдых\n- Подготовка к следующему дню"),
@@ -109,7 +98,6 @@ def create_tables():
         conn.commit()
 
 def get_user_name(user_id):
-    """Получить имя пользователя по ID"""
     with get_db_connection() as conn:
         cursor = conn.cursor()
         cursor.execute('SELECT name FROM users WHERE user_id = ?', (user_id,))
@@ -117,7 +105,6 @@ def get_user_name(user_id):
         return result['name'] if result else None
 
 def save_user_name(user_id, name):
-    """Сохранить или обновить имя пользователя"""
     with get_db_connection() as conn:
         conn.execute('INSERT OR REPLACE INTO users (user_id, name) VALUES (?, ?)', (user_id, name))
         conn.commit()
@@ -131,7 +118,6 @@ def get_base_plan():
         return [dict(row) for row in cursor.fetchall()]
 
 def get_plan_name_by_id(plan_id):
-    """Получить название плана по ID"""
     with get_db_connection() as conn:
         cursor = conn.cursor()
         cursor.execute('SELECT name FROM base_plans WHERE id = ?', (plan_id,))
@@ -139,7 +125,6 @@ def get_plan_name_by_id(plan_id):
         return result['name'] if result else None
 
 def save_user_plan(user_id, name, text):
-    """Сохраняет пользовательский план"""
     with get_db_connection() as conn:
         cursor = conn.cursor()
         cursor.execute(
@@ -160,7 +145,6 @@ def get_user_plan(user_id):
 
 
 def update_user_current_plan(user_id, plan_name):
-    """Установить текущий план для пользователя"""
     with get_db_connection() as conn:
         conn.execute(
             'INSERT OR REPLACE INTO current_plans (user_id, plan_name) VALUES (?, ?)',
@@ -169,7 +153,6 @@ def update_user_current_plan(user_id, plan_name):
         conn.commit()
 
 def get_current_plan(user_id):
-    """Получить текущий план пользователя"""
     with get_db_connection() as conn:
         cursor = conn.cursor()
         cursor.execute('SELECT plan_name FROM current_plans WHERE user_id = ?', (user_id,))
@@ -178,23 +161,18 @@ def get_current_plan(user_id):
 
 
 def get_plan_text_by_name(plan_name):
-    """Получить текст плана по названию (ищет в базовых и пользовательских)"""
-connection() as conn:
+    with connection() as conn:
         cursor = conn.cursor()
-        
-        # Сначала проверяем базовые планы
         cursor.execute('SELECT plan_text FROM base_plans WHERE name = ?', (plan_name,))
         result = cursor.fetchone()
         
         if not result:
-            # Затем проверяем пользовательские планы
             cursor.execute('SELECT plan_text FROM user_plans WHERE plan_name = ?', (plan_name,))
             result = cursor.fetchone()
         
         return result['plan_text'] if result else None
 
 def save_public_plan(group_id, user_id, name, text):
-    """Сохраняет публичный план для группы"""
     with get_db_connection() as conn:
         cursor = conn.cursor()
         cursor.execute(
@@ -206,7 +184,6 @@ def save_public_plan(group_id, user_id, name, text):
         conn.commit()
 
 def get_active_group_plan(group_id):
-    """Получает активный план группы"""
     with get_db_connection() as conn:
         cursor = conn.cursor()
         cursor.execute('''
@@ -220,20 +197,9 @@ def get_active_group_plan(group_id):
         return cursor.fetchone()
 
 def delete_user_plan(user_id, plan_id):
-
-    """Удаляет пользовательский план
-    
-    Args:
-        user_id: ID пользователя
-        plan_id: ID плана
-        
-    Returns:
-        bool: True если план успешно удален, False если план не найден или не принадлежит пользователю
-    """
     with get_db_connection() as conn:
         cursor = conn.cursor()
         
-        # Проверяем, существует ли план и принадлежит ли он пользователю
         cursor.execute(
             'SELECT 1 FROM user_plans WHERE id = ? AND user_id = ?',
             (plan_id, user_id)
@@ -241,7 +207,6 @@ def delete_user_plan(user_id, plan_id):
         if not cursor.fetchone():
             return False
             
-        # Если это текущий план пользователя, удаляем его из current_plans
         cursor.execute(
             '''DELETE FROM current_plans 
                WHERE user_id = ? AND plan_name IN 
@@ -249,14 +214,12 @@ def delete_user_plan(user_id, plan_id):
             (user_id, plan_id)
         )
         
-        # Удаляем сам план
         cursor.execute('DELETE FROM user_plans WHERE id = ?', (plan_id,))
         conn.commit()
         return True
 
 
 def save_plan_statistics(user_id, group_id, plan_name, total_tasks, completed_tasks):
-    """Сохраняет статистику выполнения плана"""
     with get_db_connection() as conn:
         cursor = conn.cursor()
         cursor.execute(
@@ -268,7 +231,6 @@ def save_plan_statistics(user_id, group_id, plan_name, total_tasks, completed_ta
         conn.commit()
 
 def get_user_statistics(user_id):
-    """Получает статистику пользователя"""
     with get_db_connection() as conn:
         cursor = conn.cursor()
         cursor.execute('''
@@ -281,7 +243,6 @@ def get_user_statistics(user_id):
         return [dict(row) for row in cursor.fetchall()]
 
 def get_group_statistics(group_id):
-    """Получает статистику группы"""
     with get_db_connection() as conn:
         cursor = conn.cursor()
         cursor.execute('''
@@ -300,7 +261,6 @@ def get_group_statistics(group_id):
         return [dict(row) for row in cursor.fetchall()]
 
 def save_completed_tasks(user_id, group_id, completed_tasks):
-    """Сохраняет количество выполненных задач"""
     with get_db_connection() as conn:
         cursor = conn.cursor()
         cursor.execute(
@@ -312,7 +272,6 @@ def save_completed_tasks(user_id, group_id, completed_tasks):
         conn.commit()
 
 def get_user_completed_tasks(user_id):
-    """Получает общее количество выполненных задач пользователя"""
     with get_db_connection() as conn:
         cursor = conn.cursor()
         cursor.execute('''
@@ -324,7 +283,6 @@ def get_user_completed_tasks(user_id):
         return result['total'] if result['total'] is not None else 0
 
 def get_group_completed_tasks(group_id):
-    """Получает статистику выполненных задач в группе"""
     with get_db_connection() as conn:
         cursor = conn.cursor()
         cursor.execute('''
@@ -352,7 +310,6 @@ def get_group_completed_tasks(group_id):
         }
 
 def save_study_time(user_id, group_id, study_hours):
-    """Сохраняет время обучения"""
     with get_db_connection() as conn:
         cursor = conn.cursor()
         cursor.execute(
@@ -364,7 +321,6 @@ def save_study_time(user_id, group_id, study_hours):
         conn.commit()
 
 def get_user_study_time(user_id):
-    """Получает общее время обучения пользователя"""
     with get_db_connection() as conn:
         cursor = conn.cursor()
         cursor.execute('''
@@ -376,7 +332,6 @@ def get_user_study_time(user_id):
         return float(result['total']) if result['total'] is not None else 0.0
 
 def get_group_study_time(group_id):
-    """Получает общее время обучения в группе"""
     with get_db_connection() as conn:
         cursor = conn.cursor()
         cursor.execute('''

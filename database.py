@@ -256,7 +256,7 @@ def delete_user_plan(user_id: int, plan_id: int) -> bool:
         return True
 
 # Функции для работы со статистикой
-def save_plan_statistics(user_id: int, group_id: int | None, plan_name: str, total_tasks: int, completed_tasks: int):
+def save_plan_statistics(user_id,group_id, plan_name, total_tasks, completed_tasks):
     """Сохраняет статистику выполнения плана"""
     with get_db_connection() as conn:
         cursor = conn.cursor()
@@ -300,7 +300,7 @@ def get_group_statistics(group_id: int) -> List[Dict[str, Any]]:
         ''', (group_id,))
         return [dict(row) for row in cursor.fetchall()]
 
-def save_completed_tasks(user_id: int | None, group_id: int | None, completed_tasks: int):
+def save_completed_tasks(user_id, group_id, completed_tasks):
     """Сохраняет количество выполненных задач"""
     with get_db_connection() as conn:
         cursor = conn.cursor()

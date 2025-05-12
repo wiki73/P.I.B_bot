@@ -1646,7 +1646,7 @@ async def add_new_task_handler(callback: CallbackQuery, state: FSMContext):
         await callback.message.edit_text(
             "Введите текст нового пункта:"
         )
-        await state.set_state(PlanManagement.adding_task)  # Используем новое состояние
+        await state.set_state(PlanManagement.adding_task) 
     except Exception as e:
         logger.error(f"Ошибка в add_new_task_handler: {e}")
         await callback.answer("Ошибка при добавлении пункта", show_alert=True)

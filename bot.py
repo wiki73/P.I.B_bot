@@ -716,8 +716,14 @@ async def use_plan(callback: types.CallbackQuery):
 
 # Обработчик /new_day для групп
 @dp.message(Command('new_day'), F.chat.type.in_({"group", "supergroup"}))
-async def new_day_group(message: Message):
+async def new_day_group(message: Message, state: FSMContext):
     try:
+        print(f"new_day_group вызван в чате: {message.chat.id}")
+        # Сохраняем ID группы в состоянии
+        await state.update_data(group_id=message.chat.id)
+        data = await state.get_data()
+        print(f"Сохранённый group_id в new_day_group: {data.get('group_id')}")
+        
         bot_username = (await bot.get_me()).username
         deep_link = f"https://t.me/{bot_username}?start=newday_{message.chat.id}"
         
@@ -757,8 +763,13 @@ async def start_command(message: Message, state: FSMContext):
     args = message.text.split()
     if len(args) > 1 and args[1].startswith('newday_'):
         group_id = int(args[1].split('_')[1])
+        print(f"start_command: получен group_id из deep link: {group_id}")
+        # Сохраняем ID группы в состоянии
         await state.update_data(group_id=group_id)
-        await state.set_state(UserState.choosing_plan_type)  # Устанавливаем состояние перед показом опций
+        data = await state.get_data()
+        print(f"start_command: сохранённый group_id: {data.get('group_id')}")
+        
+        await state.set_state(UserState.choosing_plan_type)
         await show_plan_creation_options(message, state)
     else:
         user_id = message.from_user.id
@@ -773,6 +784,9 @@ async def start_command(message: Message, state: FSMContext):
 
 async def show_plan_creation_options(message: Message, state: FSMContext):
     logger.info("Показываем опции создания плана")
+    data = await state.get_data()
+    print(f"show_plan_creation_options: group_id из состояния: {data.get('group_id')}")
+    
     current_state = await state.get_state()
     logger.info(f"Текущее состояние: {current_state}")
     
@@ -804,12 +818,18 @@ async def show_plan_creation_options(message: Message, state: FSMContext):
 @dp.callback_query(UserState.choosing_plan_type)
 async def handle_plan_type_choice(callback: CallbackQuery, state: FSMContext):
     logger.info(f"Обработка выбора типа плана: {callback.data}")
+    data = await state.get_data()
+    print(f"handle_plan_type_choice: group_id из состояния: {data.get('group_id')}")
+    
     if callback.data == "use_existing_plan":
         await show_existing_plans(callback, state)
         await state.set_state(UserState.selecting_existing_plan)
     elif callback.data == "create_new_plan":
         current_date = datetime.now().strftime("%d.%m.%Y")
-        await state.update_data(current_date=current_date)
+        # Сохраняем дату, сохраняя при этом group_id
+        data['current_date'] = current_date
+        await state.set_data(data)
+        print(f"create_new_plan: сохранён group_id: {data.get('group_id')}")
         await callback.message.edit_text("📝 Введите название для нового плана на сегодня:")
         await state.set_state(UserState.creating_new_plan)
     elif callback.data == "use_current_plan":
@@ -838,12 +858,14 @@ async def handle_plan_type_choice(callback: CallbackQuery, state: FSMContext):
         # Разбиваем текст плана на задачи
         tasks = plan_text.split('\n')
         
-        # Сохраняем данные в состояние
-        await state.update_data(
-            tasks=tasks,
-            plan_name=current_plan_name,
-            current_date=current_date
-        )
+        # Сохраняем данные в состояние, сохраняя при этом group_id
+        data.update({
+            'tasks': tasks,
+            'plan_name': current_plan_name,
+            'current_date': current_date
+        })
+        await state.set_data(data)
+        print(f"use_current_plan: сохранён group_id: {data.get('group_id')}")
         
         # Показываем редактор плана
         keyboard = InlineKeyboardMarkup(inline_keyboard=[
@@ -1238,8 +1260,10 @@ async def manage_plan_handler(callback: CallbackQuery, state: FSMContext):
 
 async def show_management_menu(message: Message):
     keyboard = InlineKeyboardMarkup(inline_keyboard=[
-        [InlineKeyboardButton(text="✅ Отметить пункты", callback_data="mark_tasks")],
+        [InlineKeyboardButton(text="✅ Отметить пункты", callback_data="mark_tasks"),
+         InlineKeyboardButton(text="💬 Комментарии", callback_data="task_comments")],
         [InlineKeyboardButton(text="✏️ Редактировать", callback_data="edit_plan")],
+        [InlineKeyboardButton(text="🌙 Завершить день", callback_data="finish_day")],
         [InlineKeyboardButton(text="❌ Закрыть", callback_data="close_management")]
     ])
     await message.edit_reply_markup(reply_markup=keyboard)
@@ -1359,8 +1383,9 @@ def get_management_keyboard():
     return InlineKeyboardMarkup(inline_keyboard=[
         [InlineKeyboardButton(text="✅ Отметить пункты", callback_data="mark_tasks"),
          InlineKeyboardButton(text="💬 Комментарии", callback_data="task_comments")],
-        [InlineKeyboardButton(text="✏️ Редактировать", callback_data="edit_plan"),
-         InlineKeyboardButton(text="❌ Закрыть", callback_data="close_management")]
+        [InlineKeyboardButton(text="✏️ Редактировать", callback_data="edit_plan")],
+        [InlineKeyboardButton(text="🌙 Завершить день", callback_data="finish_day")],
+        [InlineKeyboardButton(text="❌ Закрыть", callback_data="close_management")]
     ])
 
 # Обработчик закрытия меню
@@ -1667,6 +1692,76 @@ async def save_current_plan(callback: CallbackQuery, state: FSMContext):
     await callback.message.edit_text("✅ План успешно сохранен!", reply_markup=keyboard)
     await state.clear()
     await callback.answer()
+
+# Добавляем обработчик завершения дня
+@dp.callback_query(F.data == "finish_day")
+async def finish_day(callback: CallbackQuery, state: FSMContext):
+    data = await state.get_data()
+    tasks = data.get('tasks', [])
+    group_id = data.get('group_id')
+    
+    # Подсчитываем выполненные задачи
+    completed_tasks = sum(1 for task in tasks if '✅' in task)
+    
+    # Всегда сохраняем в личную статистику пользователя
+    save_completed_tasks(
+        user_id=callback.from_user.id,
+        group_id=None,
+        completed_tasks=completed_tasks
+    )
+    
+    # Если план в группе, дополнительно сохраняем в групповую статистику
+    if group_id:
+        save_completed_tasks(
+            user_id=callback.from_user.id,
+            group_id=group_id,
+            completed_tasks=completed_tasks
+        )
+        # Отправляем сообщение только в группу
+        await callback.message.delete()  # Удаляем сообщение с кнопками
+        await bot.send_message(
+            chat_id=group_id,
+            text=f"🌙 {callback.from_user.mention_html()} завершил день!\n"
+                 f"✅ Выполнено задач: {completed_tasks}",
+            parse_mode="HTML"
+        )
+    else:
+        # В личном чате просто обновляем сообщение
+        message = f"🌙 День завершён!\n\n✅ Выполнено задач: {completed_tasks}"
+        await callback.message.edit_text(message)
+    
+    await state.clear()
+    await callback.answer()
+
+# Добавляем обработчик команды /static
+@dp.message(Command('static'))
+async def show_statistics(message: Message):
+    current_date = datetime.now().strftime("%d.%m.%Y")
+    
+    if message.chat.type in ["group", "supergroup"]:
+        # Показываем статистику группы
+        stats = get_group_completed_tasks(message.chat.id)
+        
+        if stats['total_completed'] == 0:
+            await message.answer("📊 В этой группе пока нет выполненных задач!")
+            return
+            
+        await message.answer(
+            f"📊 Статистика группы на {current_date}:\n\n"
+            f"✅ Всего выполнено задач: {stats['total_completed']}"
+        )
+    else:
+        # Показываем личную статистику
+        completed_tasks = get_user_completed_tasks(message.from_user.id)
+        
+        if completed_tasks == 0:
+            await message.answer("📊 У вас пока нет выполненных задач!")
+            return
+            
+        await message.answer(
+            f"📊 Ваша статистика на {current_date}:\n\n"
+            f"✅ Всего выполнено задач: {completed_tasks}"
+        )
 
 # Запуск бота
 async def main():

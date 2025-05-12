@@ -63,6 +63,30 @@ def create_tables():
             FOREIGN KEY (user_id) REFERENCES users(user_id)
         )''')
         
+        # Статистика выполнения планов
+        cursor.execute('''
+        CREATE TABLE IF NOT EXISTS plan_statistics (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            user_id INTEGER NOT NULL,
+            group_id INTEGER,
+            date TEXT NOT NULL,
+            total_tasks INTEGER NOT NULL,
+            completed_tasks INTEGER NOT NULL,
+            plan_name TEXT NOT NULL,
+            FOREIGN KEY (user_id) REFERENCES users(user_id)
+        )''')
+        
+        # Таблица статистики
+        cursor.execute('''
+        CREATE TABLE IF NOT EXISTS completed_tasks_stats (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            user_id INTEGER,
+            group_id INTEGER,
+            completed_tasks INTEGER NOT NULL,
+            date TEXT DEFAULT CURRENT_DATE,
+            FOREIGN KEY (user_id) REFERENCES users(user_id)
+        )''')
+        
         # Добавляем демо-планы, если таблица пуста
         if not cursor.execute('SELECT 1 FROM base_plans LIMIT 1').fetchone():
             default_plans = [
@@ -219,3 +243,105 @@ def delete_user_plan(user_id: int, plan_id: int) -> bool:
         cursor.execute('DELETE FROM user_plans WHERE id = ?', (plan_id,))
         conn.commit()
         return True
+
+# Функции для работы со статистикой
+def save_plan_statistics(user_id: int, group_id: int | None, plan_name: str, total_tasks: int, completed_tasks: int):
+    """Сохраняет статистику выполнения плана"""
+    with get_db_connection() as conn:
+        cursor = conn.cursor()
+        cursor.execute(
+            '''INSERT INTO plan_statistics 
+            (user_id, group_id, date, total_tasks, completed_tasks, plan_name)
+            VALUES (?, ?, date('now'), ?, ?, ?)''',
+            (user_id, group_id, total_tasks, completed_tasks, plan_name)
+        )
+        conn.commit()
+
+def get_user_statistics(user_id: int) -> List[Dict[str, Any]]:
+    """Получает статистику пользователя"""
+    with get_db_connection() as conn:
+        cursor = conn.cursor()
+        cursor.execute('''
+            SELECT date, total_tasks, completed_tasks, plan_name
+            FROM plan_statistics
+            WHERE user_id = ?
+            ORDER BY date DESC
+            LIMIT 7
+        ''', (user_id,))
+        return [dict(row) for row in cursor.fetchall()]
+
+def get_group_statistics(group_id: int) -> List[Dict[str, Any]]:
+    """Получает статистику группы"""
+    with get_db_connection() as conn:
+        cursor = conn.cursor()
+        cursor.execute('''
+            SELECT 
+                ps.date,
+                SUM(ps.total_tasks) as total_tasks,
+                SUM(ps.completed_tasks) as completed_tasks,
+                COUNT(DISTINCT ps.user_id) as users_count,
+                ROUND(AVG(CAST(ps.completed_tasks AS FLOAT) / ps.total_tasks * 100), 2) as avg_completion
+            FROM plan_statistics ps
+            WHERE ps.group_id = ?
+            GROUP BY ps.date
+            ORDER BY ps.date DESC
+            LIMIT 7
+        ''', (group_id,))
+        return [dict(row) for row in cursor.fetchall()]
+
+def save_completed_tasks(user_id: int | None, group_id: int | None, completed_tasks: int):
+    """Сохраняет количество выполненных задач"""
+    with get_db_connection() as conn:
+        cursor = conn.cursor()
+        cursor.execute(
+            '''INSERT INTO completed_tasks_stats 
+            (user_id, group_id, completed_tasks)
+            VALUES (?, ?, ?)''',
+            (user_id, group_id, completed_tasks)
+        )
+        conn.commit()
+
+def get_user_completed_tasks(user_id: int) -> int:
+    """Получает общее количество выполненных задач пользователя"""
+    with get_db_connection() as conn:
+        cursor = conn.cursor()
+        cursor.execute('''
+            SELECT SUM(completed_tasks) as total
+            FROM completed_tasks_stats
+            WHERE user_id = ?
+        ''', (user_id,))
+        result = cursor.fetchone()
+        return result['total'] if result['total'] is not None else 0
+
+def get_group_completed_tasks(group_id: int) -> dict:
+    """Получает статистику выполненных задач в группе"""
+    with get_db_connection() as conn:
+        cursor = conn.cursor()
+        # Добавляем логирование для отладки
+        print(f"Получаем статистику для группы {group_id}")
+        cursor.execute('''
+            SELECT 
+                SUM(completed_tasks) as total_completed,
+                COUNT(DISTINCT user_id) as unique_users,
+                MAX(date) as last_update
+            FROM completed_tasks_stats
+            WHERE group_id = ?
+            GROUP BY group_id
+        ''', (group_id,))
+        result = cursor.fetchone()
+        
+        # Добавляем логирование результата
+        print(f"Результат запроса: {result}")
+        
+        if result is None:
+            return {
+                'total_completed': 0,
+                'unique_users': 0,
+                'last_update': None
+            }
+            
+        return {
+            'total_completed': result['total_completed'],
+            'unique_users': result['unique_users'],
+            'last_update': result['last_update']
+        }

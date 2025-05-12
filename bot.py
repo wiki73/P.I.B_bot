@@ -3,13 +3,13 @@ from aiogram.filters import CommandStart, Command
 from aiogram.types import Message, InlineKeyboardMarkup, InlineKeyboardButton, CallbackQuery
 from aiogram.utils.keyboard import InlineKeyboardBuilder
 from aiogram.fsm.context import FSMContext
-from aiogram.fsm.state import State, StatesGroup
 import asyncio
 from datetime import datetime
-from config import load_config
+from config import load_config, set_bot_commands
 from database import *
 from keyboards import *
 from utils import logger, send_message_with_keyboard
+from states import UserState, PlanCreation, PlanManagement, PlanView
 
 config = load_config()
 bot = Bot(token=config.bot_token)
@@ -48,30 +48,6 @@ try:
 except Exception as e:
     logger.error(f"Ошибка при инициализации базы данных: {e}")
     raise
-
-class UserState(StatesGroup):
-    waiting_for_nickname = State()
-    waiting_for_plan_title = State()
-    waiting_for_plan_tasks = State()
-    waiting_for_base_plan_choice = State()
-    waiting_for_confirm = State()
-    editing_plan = State()
-    choosing_plan_type = State()
-    selecting_existing_plan = State()
-    creating_new_plan = State()
-    publishing_plan = State()
-    adding_new_task = State()
-
-
-class PlanManagement(StatesGroup):
-    managing_plan = State()
-    marking_tasks = State()
-    adding_comment = State()
-    editing_task = State()  
-    adding_task = State()
-    waiting_for_study_time = State()
-
-
 
 @dp.message(lambda message: message.chat.type == "private" and not message.text.startswith('/'))
 async def private_chat_handler(message: Message, state: FSMContext):
@@ -132,7 +108,7 @@ async def handle_show_base_plans(callback: CallbackQuery):
 async def handle_show_user_plans(callback: CallbackQuery):
     try:
         user_plans = get_user_plan(callback.from_user.id)
-        logger.info('user_plans: ' + user_plans)
+        logger.info(f'user_plans: {user_plans}')
         
         if not user_plans:
             await callback.message.edit_text(
@@ -303,12 +279,6 @@ async def info_command(message: Message):
     )
     await send_message_with_keyboard(message, info_text)
 
-
-class PlanCreation(StatesGroup):
-    waiting_for_title = State()
-    waiting_for_tasks = State()
-    waiting_for_confirmation = State()
-
 @dp.message(Command('create_plan'))
 async def create_plan_command(message: types.Message, state: FSMContext):
     if message.chat.type == "private":
@@ -384,11 +354,6 @@ async def confirm_plan(message: types.Message, state: FSMContext):
 @dp.message(PlanCreation.waiting_for_confirmation)
 async def wrong_confirmation(message: Message):
     await send_message_with_keyboard(message, "Пожалуйста, ответьте 'да' или 'нет'")
-
-
-
-class PlanView(StatesGroup):
-    viewing_plans = State()
 
 @dp.message(Command('view_plans'))
 async def view_plans_command(message: types.Message, state: FSMContext):
@@ -1122,6 +1087,7 @@ async def show_statistics(message: Message):
         )
 
 async def main():
+    await set_bot_commands(bot)
     await dp.start_polling(bot)
 
 if __name__ == '__main__':

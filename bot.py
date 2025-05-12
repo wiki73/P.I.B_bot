@@ -1780,7 +1780,7 @@ async def process_study_time(message: Message, state: FSMContext):
         await state.clear()
         
     except ValueError:
-        await message.answer("❌ Пожалуйста, введите корректное число часов (например: 2.5):")
+        await message.answer("❌ Пожалуйста, введите корректное число часов:")
 
 # Добавляем обработчик команды /static
 @dp.message(Command('static'))

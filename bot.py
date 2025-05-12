@@ -1,6 +1,6 @@
 from aiogram import Bot, Dispatcher, types, F
 from aiogram.filters import CommandStart, Command
-from aiogram.types import Message, InlineKeyboardMarkup, InlineKeyboardButton, CallbackQuery, ReplyKeyboardMarkup, KeyboardButton
+from aiogram.types import Message, InlineKeyboardMarkup, InlineKeyboardButton, CallbackQuery
 from aiogram.utils.keyboard import InlineKeyboardBuilder
 from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import State, StatesGroup
@@ -10,6 +10,8 @@ from dotenv import load_dotenv
 import os
 import logging
 from database import *
+from utils import add_back_button
+from keyboards import cancel_plan_creation_keyboard, get_new_day_keyboard, get_view_base_plans_keyboard, personal_keyboard, group_keyboard, main_menu_keyboard,help_keyboard
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -19,9 +21,7 @@ TOKEN = os.getenv("TOKEN")
 bot = Bot(token=TOKEN)
 dp = Dispatcher()
 
-def add_back_button(keyboard_list: list, callback_data: str = "back_to_main") -> list:
-    keyboard_list.append([InlineKeyboardButton(text="◀️ Назад", callback_data=callback_data)])
-    return keyboard_list
+
 
 @dp.callback_query(F.data == "cancel_plan_creation")
 async def handle_cancel_plan_creation(callback: CallbackQuery, state: FSMContext):
@@ -42,10 +42,9 @@ async def handle_cancel_plan_creation(callback: CallbackQuery, state: FSMContext
         except Exception as e:
             logger.error(f"Ошибка при отправке сообщения в группу: {e}")
     else:
-        keyboard = InlineKeyboardMarkup(inline_keyboard=add_back_button([], "back_to_main"))
         await callback.message.edit_text(
             "Создание плана отменено.",
-            reply_markup=keyboard
+            reply_markup=cancel_plan_creation_keyboard
         )
     
     await state.clear()
@@ -81,25 +80,6 @@ class PlanManagement(StatesGroup):
     adding_task = State()
     waiting_for_study_time = State()
 
-personal_keyboard = ReplyKeyboardMarkup(
-    keyboard=[
-        [KeyboardButton(text="/start"), KeyboardButton(text="/help")],
-        [KeyboardButton(text="/info"), KeyboardButton(text="/create_plan")],
-        [KeyboardButton(text="/view_plans")]
-    ],
-    resize_keyboard=True,
-    is_persistent=True
-)
-
-group_keyboard = ReplyKeyboardMarkup(
-    keyboard=[
-        [KeyboardButton(text="/new_day"), KeyboardButton(text="/static")],
-        [KeyboardButton(text="/help")]
-    ],
-    resize_keyboard=True,
-    is_persistent=True
-)
-
 async def send_message_with_keyboard(message: Message, text: str, reply_markup=None, parse_mode=None):
     base_keyboard = group_keyboard if message.chat.type in ["group", "supergroup"] else personal_keyboard
     
@@ -122,13 +102,7 @@ async def private_chat_handler(message: Message, state: FSMContext):
         )
 
 async def show_main_menu(message: Message):
-    keyboard = InlineKeyboardMarkup(inline_keyboard=[
-        [InlineKeyboardButton(text="Мои планы", callback_data="view_user_plans")],
-        [InlineKeyboardButton(text="Базовые планы", callback_data="view_base_plans")],
-        [InlineKeyboardButton(text="Создать план", callback_data="create_plan")],
-        [InlineKeyboardButton(text="Текущий план", callback_data="current_plan")]
-    ])
-    await message.answer("Выберите действие:", reply_markup=keyboard)
+    await message.answer("Выберите действие:", reply_markup=main_menu_keyboard)
 
 
 @dp.message(UserState.waiting_for_nickname)
@@ -152,11 +126,7 @@ async def help_command(message: Message):
             "/view_plans - Посмотреть планы"
         )
 
-        inline_keyboard = InlineKeyboardMarkup(inline_keyboard=[
-            [InlineKeyboardButton(text="Посмотреть текущий план", callback_data="current_plan")]
-        ])
-
-        await send_message_with_keyboard(message, help_text, reply_markup=inline_keyboard)
+        await send_message_with_keyboard(message, help_text, reply_markup=help_keyboard)
     else:
         await send_message_with_keyboard(
             message,
@@ -167,22 +137,14 @@ async def help_command(message: Message):
 
 @dp.callback_query(F.data == "view_base_plans")
 async def handle_show_base_plans(callback: CallbackQuery):
-    logging.info("Пользователь выбрал базовые планы.")
     base_plans = get_base_plan()
+    keyboard = get_view_base_plans_keyboard(base_plans)
+    callback_message = "Выберите базовый план:"
     
     if not base_plans:
-        keyboard = InlineKeyboardMarkup(inline_keyboard=add_back_button([], "back_to_main"))
-        await callback.message.edit_text("Базовые планы не найдены.", reply_markup=keyboard)
-        await callback.answer()
-        return
-    
-    buttons = [
-        [InlineKeyboardButton(text=plan['name'], callback_data=f"plan_action:base:{plan['id']}")]
-        for plan in base_plans
-    ]
-    keyboard = InlineKeyboardMarkup(inline_keyboard=add_back_button(buttons, "back_to_main"))
-    
-    await callback.message.edit_text("Выберите базовый план:", reply_markup=keyboard)
+        callback_message = "Базовые планы не найдены."
+
+    await callback.message.edit_text(callback_message, reply_markup=keyboard)
     await callback.answer()
 
 @dp.callback_query(F.data == "view_user_plans")
@@ -675,30 +637,14 @@ async def use_plan(callback: types.CallbackQuery):
 @dp.message(Command('new_day'), F.chat.type.in_({"group", "supergroup"}))
 async def new_day_group(message: Message, state: FSMContext):
     try:
-        print(f"new_day_group вызван в чате: {message.chat.id}")
-        await state.update_data(group_id=message.chat.id)
-        data = await state.get_data()
-        print(f"Сохранённый group_id в new_day_group: {data.get('group_id')}")
-        
         bot_username = (await bot.get_me()).username
-        deep_link = f"https://t.me/{bot_username}?start=newday_{message.chat.id}"
-        
-        keyboard = InlineKeyboardMarkup(inline_keyboard=[
-            [InlineKeyboardButton(
-                text="✨ Создать мой план",
-                url=deep_link
-            )],
-            [InlineKeyboardButton(
-                text="❌ Отмена",
-                callback_data="cancel_new_day"
-            )]
-        ])
-        
+
+        await state.update_data(group_id=message.chat.id)
         await send_message_with_keyboard(
             message,
             f"🌅 {message.from_user.mention_html()} начинает новый день!\n"
             "Нажмите кнопку ниже, чтобы создать личный план ↓",
-            reply_markup=keyboard,
+            reply_markup=get_new_day_keyboard(bot_username, message.chat.id),
             parse_mode="HTML"
         )
     except Exception as e:
@@ -719,11 +665,8 @@ async def start_command(message: Message, state: FSMContext):
     args = message.text.split()
     if len(args) > 1 and args[1].startswith('newday_'):
         group_id = int(args[1].split('_')[1])
-        print(f"start_command: получен group_id из deep link: {group_id}")
+
         await state.update_data(group_id=group_id)
-        data = await state.get_data()
-        print(f"start_command: сохранённый group_id: {data.get('group_id')}")
-        
         await state.set_state(UserState.choosing_plan_type)
         await show_plan_creation_options(message, state)
     else:
@@ -746,7 +689,6 @@ async def start_command(message: Message, state: FSMContext):
 async def show_plan_creation_options(message: Message, state: FSMContext):
     logger.info("Показываем опции создания плана")
     data = await state.get_data()
-    print(f"show_plan_creation_options: group_id из состояния: {data.get('group_id')}")
     
     current_state = await state.get_state()
     logger.info(f"Текущее состояние: {current_state}")
@@ -779,7 +721,6 @@ async def show_plan_creation_options(message: Message, state: FSMContext):
 async def handle_plan_type_choice(callback: CallbackQuery, state: FSMContext):
     logger.info(f"Обработка выбора типа плана: {callback.data}")
     data = await state.get_data()
-    print(f"handle_plan_type_choice: group_id из состояния: {data.get('group_id')}")
     
     if callback.data == "use_existing_plan":
         await show_existing_plans(callback, state)
@@ -788,7 +729,6 @@ async def handle_plan_type_choice(callback: CallbackQuery, state: FSMContext):
         current_date = datetime.now().strftime("%d.%m.%Y")
         data['current_date'] = current_date
         await state.set_data(data)
-        print(f"create_new_plan: сохранён group_id: {data.get('group_id')}")
         await callback.message.edit_text("📝 Введите название для нового плана на сегодня:")
         await state.set_state(UserState.creating_new_plan)
     elif callback.data == "use_current_plan":
@@ -820,7 +760,6 @@ async def handle_plan_type_choice(callback: CallbackQuery, state: FSMContext):
             'current_date': current_date
         })
         await state.set_data(data)
-        print(f"use_current_plan: сохранён group_id: {data.get('group_id')}")
         
         keyboard = InlineKeyboardMarkup(inline_keyboard=[
             [InlineKeyboardButton(text="✏️ Редактировать задачи", callback_data="edit_tasks")],
@@ -1691,7 +1630,6 @@ async def show_statistics(message: Message):
 
 async def main():
     await dp.start_polling(bot)
-    print("Бот запущен...")
 
 if __name__ == '__main__':
     asyncio.run(main())

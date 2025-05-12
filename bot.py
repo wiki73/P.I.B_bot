@@ -98,7 +98,7 @@ personal_keyboard = ReplyKeyboardMarkup(
         [KeyboardButton(text="/view_plans")]
     ],
     resize_keyboard=True,
-    persistent=True
+    is_persistent=True
 )
 
 # Клавиатура для групповых чатов
@@ -108,16 +108,33 @@ group_keyboard = ReplyKeyboardMarkup(
         [KeyboardButton(text="/help")]
     ],
     resize_keyboard=True,
-    persistent=True
+    is_persistent=True
 )
-####
-@dp.message(F.chat.type == {"group", "supergroup"})
+
+# Модифицируем функцию отправки сообщений
+async def send_message_with_keyboard(message: Message, text: str, reply_markup=None, parse_mode=None):
+    # Определяем тип чата и выбираем соответствующую клавиатуру
+    base_keyboard = group_keyboard if message.chat.type in ["group", "supergroup"] else personal_keyboard
+    
+    try:
+        if isinstance(reply_markup, InlineKeyboardMarkup):
+            # Если передана inline клавиатура, отправляем сообщение с ней
+            await message.answer(text, reply_markup=reply_markup, parse_mode=parse_mode)
+        else:
+            # В остальных случаях используем базовую клавиатуру
+            await message.answer(text, reply_markup=base_keyboard, parse_mode=parse_mode)
+    except Exception as e:
+        logger.error(f"Ошибка при отправке сообщения: {e}")
+        await message.answer(text, reply_markup=base_keyboard)
+
+# Обработчик для личных сообщений
+@dp.message(lambda message: message.chat.type == "private" and not message.text.startswith('/'))
 async def private_chat_handler(message: Message, state: FSMContext):
-    # Если сообщение не обработано другими хендлерами
-    if not message.text.startswith('/'):
-        await message.answer(
-            "Используйте кнопки меню или команды:",
-            reply_markup=personal_keyboard
+    current_state = await state.get_state()
+    if not current_state:
+        await send_message_with_keyboard(
+            message,
+            "Используйте кнопки меню или команды:"
         )
 
 async def show_main_menu(message: Message):
@@ -136,15 +153,13 @@ async def process_nickname(message: Message, state: FSMContext):
     user_id = message.from_user.id
     user_nick = message.text
     save_user_name(user_id, user_nick)
-    await message.answer(f"Отлично, {user_nick}!", reply_markup=personal_keyboard)
+    await send_message_with_keyboard(message, f"Отлично, {user_nick}!")
     await state.clear()
     await show_main_menu(message)
 
 # Команда /help
 @dp.message(Command('help'))
 async def help_command(message: Message):
-    
-    
     if message.chat.type == "private":
         help_text = (
             "Личные команды:\n"
@@ -160,14 +175,13 @@ async def help_command(message: Message):
             [InlineKeyboardButton(text="Посмотреть текущий план", callback_data="current_plan")]
         ])
 
-        await message.answer(help_text, reply_markup=personal_keyboard)
-        await message.answer("Вы можете также:", reply_markup=inline_keyboard)
+        await send_message_with_keyboard(message, help_text, reply_markup=inline_keyboard)
     else:
-        await message.answer(
+        await send_message_with_keyboard(
+            message,
             "Групповые команды:\n"
             "/new_day - Начать день\n"
-            "/static - Статистика",
-            reply_markup=group_keyboard
+            "/static - Статистика"
         )
 
 @dp.callback_query(F.data == "view_base_plans")
@@ -300,7 +314,7 @@ async def handle_plan_action(callback: CallbackQuery, state: FSMContext):
             [InlineKeyboardButton(text="❌ Отмена", callback_data="cancel_plan_creation")]
         ])
         
-        plan_text = plan_header + "\n".join(f"• {task}" for task in tasks)
+        plan_text = plan_header + "\n".join(task for task in tasks)
         await callback.message.edit_text(plan_text, reply_markup=keyboard)
     else:
         # Если просто выбираем план
@@ -381,12 +395,13 @@ async def create_plan_start(callback: CallbackQuery, state: FSMContext):
 @dp.message(UserState.creating_new_plan)
 async def process_new_day_plan_title(message: Message, state: FSMContext):
     await state.update_data(title=message.text)
-    await message.answer(
+    await send_message_with_keyboard(
+        message,
         "✏️ Теперь введите задачи для плана (каждая задача с новой строки):\n\n"
         "Пример:\n"
-        "1. Зарядка\n"
-        "2. Завтрак\n"
-        "3. Работа над проектом"
+        "Зарядка\n"
+        "Завтрак\n"
+        "Работа над проектом"
     )
     await state.set_state(UserState.waiting_for_plan_tasks)
 
@@ -398,21 +413,19 @@ async def process_new_day_plan_tasks(message: Message, state: FSMContext):
     current_date = data.get('current_date')
     plan_name = data.get('title')
     
-    # Сохраняем данные в состояние
     await state.update_data(
         tasks=tasks,
         plan_name=plan_name
     )
     
-    # Показываем редактор плана
     keyboard = InlineKeyboardMarkup(inline_keyboard=[
         [InlineKeyboardButton(text="✏️ Редактировать задачи", callback_data="edit_tasks")],
         [InlineKeyboardButton(text="✅ Завершить", callback_data="finish_plan")],
         [InlineKeyboardButton(text="❌ Отмена", callback_data="cancel_plan_creation")]
     ])
     
-    plan_text = f"📅 {current_date}\n📋 {plan_name}\n\n" + "\n".join(f"• {task}" for task in tasks)
-    await message.answer(plan_text, reply_markup=keyboard)
+    plan_text = f"📅 {current_date}\n📋 {plan_name}\n\n" + "\n".join(task for task in tasks)
+    await send_message_with_keyboard(message, plan_text, reply_markup=keyboard)
     await state.set_state(UserState.editing_plan)
 
 # Обработчик для текущего плана
@@ -451,7 +464,7 @@ async def info_command(message: Message):
         "3. Развивать дисциплину\n\n"
         "Попробуйте создать свой первый план!"
     )
-    await message.answer(info_text)
+    await send_message_with_keyboard(message, info_text)
 
 
 class PlanCreation(StatesGroup):# начало обработки создания плана
@@ -462,11 +475,18 @@ class PlanCreation(StatesGroup):# начало обработки создани
 # Обработчик команды /create_plan
 @dp.message(Command('create_plan'))
 async def create_plan_command(message: types.Message, state: FSMContext):
-    await message.answer(
-        "📝 Давайте создадим новый план.\n"
-        "Введите название для вашего плана:"
-    )
-    await state.set_state(PlanCreation.waiting_for_title)
+    if message.chat.type == "private":
+        await send_message_with_keyboard(
+            message,
+            "📝 Давайте создадим новый план.\n"
+            "Введите название для вашего плана:"
+        )
+        await state.set_state(PlanCreation.waiting_for_title)
+    else:
+        await send_message_with_keyboard(
+            message,
+            "Эта команда доступна только в личном чате с ботом."
+        )
 
 # Обработчик ввода названия плана (должен использовать PlanCreation.waiting_for_title)
 @dp.message(PlanCreation.waiting_for_title)
@@ -487,19 +507,17 @@ async def process_plan_tasks(message: types.Message, state: FSMContext):
     tasks = message.text.split('\n')
     data = await state.get_data()
     
-    # Форматируем задачи в красивый список
-    formatted_tasks = "\n".join(f"• {task.strip()}" for task in tasks if task.strip())
+    formatted_tasks = "\n".join(task.strip() for task in tasks if task.strip())
     
     await state.update_data(tasks=formatted_tasks)
     
-    # Показываем предпросмотр плана
     preview = (
         f"📋 <b>{data['title']}</b>\n\n"
         f"{formatted_tasks}\n\n"
         "Всё верно? (да/нет)"
     )
     
-    await message.answer(preview, parse_mode='HTML')
+    await send_message_with_keyboard(message, preview, parse_mode='HTML')
     await state.set_state(PlanCreation.waiting_for_confirmation)
 
 # Обработчик подтверждения плана
@@ -509,20 +527,21 @@ async def confirm_plan(message: types.Message, state: FSMContext):
         data = await state.get_data()
         user_id = message.from_user.id
         
-        # Сохраняем план в базу данных
         save_user_plan(
             user_id=user_id,
             name=data['title'],
             text=data['tasks']
         )
         
-        await message.answer(
+        await send_message_with_keyboard(
+            message,
             f"✅ План <b>{data['title']}</b> успешно сохранён!\n"
             "Теперь вы можете использовать его в своём расписании.",
             parse_mode='HTML'
         )
     else:
-        await message.answer(
+        await send_message_with_keyboard(
+            message,
             "Создание плана отменено.\n"
             "Если хотите начать заново, введите /create_plan"
         )
@@ -531,8 +550,8 @@ async def confirm_plan(message: types.Message, state: FSMContext):
 
 # Обработчик некорректного ввода подтверждения
 @dp.message(PlanCreation.waiting_for_confirmation)
-async def wrong_confirmation(message: types.Message):
-    await message.answer("Пожалуйста, ответьте 'да' или 'нет'")
+async def wrong_confirmation(message: Message):
+    await send_message_with_keyboard(message, "Пожалуйста, ответьте 'да' или 'нет'")
 
 
 
@@ -542,6 +561,13 @@ class PlanView(StatesGroup):
 # Обработчик команды /view_plans
 @dp.message(Command('view_plans'))
 async def view_plans_command(message: types.Message, state: FSMContext):
+    if message.chat.type != "private":
+        await send_message_with_keyboard(
+            message,
+            "Эта команда доступна только в личном чате с ботом."
+        )
+        return
+
     # Создаем клавиатуру с выбором типа планов
     builder = InlineKeyboardBuilder()
     builder.add(
@@ -556,11 +582,29 @@ async def view_plans_command(message: types.Message, state: FSMContext):
     )
     builder.adjust(1)
     
-    await message.answer(
+    await send_message_with_keyboard(
+        message,
         "📂 Выберите тип планов для просмотра:",
         reply_markup=builder.as_markup()
     )
     await state.set_state(PlanView.viewing_plans)
+
+# Обработчик для callback_query
+@dp.callback_query()
+async def handle_callback_query(callback: CallbackQuery, state: FSMContext):
+    # Обработка callback_query без изменения основной клавиатуры
+    try:
+        if callback.message.chat.type == "private":
+            # Убеждаемся, что основная клавиатура отображается
+            await callback.message.answer(
+                "Используйте меню для быстрого доступа:",
+                reply_markup=personal_keyboard
+            )
+    except Exception as e:
+        logger.error(f"Ошибка при обработке callback: {e}")
+    
+    # Продолжаем обработку callback_query как обычно
+    await callback.answer()
 
 # Обработчик выбора базовых планов
 @dp.callback_query(F.data == "view_base_plans", PlanView.viewing_plans)
@@ -739,7 +783,8 @@ async def new_day_group(message: Message, state: FSMContext):
             )]
         ])
         
-        await message.reply(
+        await send_message_with_keyboard(
+            message,
             f"🌅 {message.from_user.mention_html()} начинает новый день!\n"
             "Нажмите кнопку ниже, чтобы создать личный план ↓",
             reply_markup=keyboard,
@@ -747,12 +792,13 @@ async def new_day_group(message: Message, state: FSMContext):
         )
     except Exception as e:
         logger.error(f"Ошибка в new_day_group: {e}")
-        await message.answer("Произошла ошибка. Попробуйте позже.")
+        await send_message_with_keyboard(message, "Произошла ошибка. Попробуйте позже.")
 
 # Обработчик отмены создания плана
 @dp.callback_query(F.data == "cancel_new_day")
 async def cancel_new_day(callback: CallbackQuery):
-    await callback.message.edit_text(
+    await send_message_with_keyboard(
+        callback.message,
         f"❌ {callback.from_user.mention_html()} отменил создание плана.",
         parse_mode="HTML"
     )
@@ -777,10 +823,16 @@ async def start_command(message: Message, state: FSMContext):
         user_name = get_user_name(user_id)
         
         if user_name is None:
-            await message.answer('Привет! Я твой бот для планирования. Как мне тебя называть?')
+            await send_message_with_keyboard(
+                message,
+                'Привет! Я твой бот для планирования. Как мне тебя называть?'
+            )
             await state.set_state(UserState.waiting_for_nickname)
         else:
-            await message.answer(f"Привет, {user_name}! Чем могу помочь?")
+            await send_message_with_keyboard(
+                message,
+                f"Привет, {user_name}! Чем могу помочь?"
+            )
             await show_main_menu(message)
 
 async def show_plan_creation_options(message: Message, state: FSMContext):
@@ -791,7 +843,6 @@ async def show_plan_creation_options(message: Message, state: FSMContext):
     current_state = await state.get_state()
     logger.info(f"Текущее состояние: {current_state}")
     
-    # Проверяем, есть ли текущий план у пользователя
     user_id = message.from_user.id
     current_plan_name = get_current_plan(user_id)
     logger.info(f"Текущий план пользователя: {current_plan_name}")
@@ -809,7 +860,8 @@ async def show_plan_creation_options(message: Message, state: FSMContext):
     
     keyboard = InlineKeyboardMarkup(inline_keyboard=buttons)
     
-    await message.answer(
+    await send_message_with_keyboard(
+        message,
         "Выберите действие:",
         reply_markup=keyboard
     )
@@ -875,7 +927,7 @@ async def handle_plan_type_choice(callback: CallbackQuery, state: FSMContext):
             [InlineKeyboardButton(text="❌ Отмена", callback_data="cancel_plan_creation")]
         ])
         
-        plan_text = plan_header + "\n".join(f"• {task}" for task in tasks)
+        plan_text = plan_header + "\n".join(task for task in tasks)
         await callback.message.edit_text(plan_text, reply_markup=keyboard)
         await state.set_state(UserState.editing_plan)
     elif callback.data == "cancel_plan_creation":
@@ -900,7 +952,7 @@ async def start_task_editing(callback: CallbackQuery, state: FSMContext):
     keyboard = InlineKeyboardMarkup(inline_keyboard=add_back_button(buttons, "back_to_plan"))
     
     plan_text = f"📅 {current_date}\n📋 {plan_name}\n\n"
-    plan_text += "Текущие задачи:\n" + "\n".join(f"{i+1}. {task}" for i, task in enumerate(tasks))
+    plan_text += "Текущие задачи:\n" + "\n".join(task for task in tasks)
     plan_text += "\n\nВыберите действие:"
     
     await callback.message.edit_text(plan_text, reply_markup=keyboard)
@@ -953,7 +1005,7 @@ async def show_task_editor(chat_id: int, state: FSMContext):
     ])
     
     plan_text = f"📅 {current_date}\n📋 {plan_name}\n\n"
-    plan_text += "Текущие задачи:\n" + "\n".join(f"{i+1}. {task}" for i, task in enumerate(tasks))
+    plan_text += "Текущие задачи:\n" + "\n".join(task for task in tasks)
     plan_text += "\n\nВыберите действие:"
     
     await bot.send_message(
@@ -1001,7 +1053,7 @@ async def back_to_plan(callback: CallbackQuery, state: FSMContext):
         [InlineKeyboardButton(text="❌ Отмена", callback_data="cancel_plan_creation")]
     ])
     
-    plan_text = f"📅 {current_date}\n📋 {plan_name}\n\n" + "\n".join(f"• {task}" for task in tasks)
+    plan_text = f"📅 {current_date}\n📋 {plan_name}\n\n" + "\n".join(task for task in tasks)
     await callback.message.edit_text(plan_text, reply_markup=keyboard)
     await callback.answer()
 
@@ -1045,8 +1097,8 @@ async def process_task_edit(message: Message, state: FSMContext):
         [InlineKeyboardButton(text="❌ Отмена", callback_data="cancel_plan_creation")]
     ])
     
-    plan_text = f"📅 {current_date}\n📋 {plan_name}\n\n" + "\n".join(f"• {task}" for task in tasks)
-    await message.answer(plan_text, reply_markup=keyboard)
+    plan_text = f"📅 {current_date}\n📋 {plan_name}\n\n" + "\n".join(task for task in tasks)
+    await send_message_with_keyboard(message, plan_text, reply_markup=keyboard)
 
 # Обработчик завершения редактирования плана
 @dp.callback_query(F.data == "finish_plan")
@@ -1062,7 +1114,7 @@ async def finish_plan_editing(callback: CallbackQuery, state: FSMContext):
         [InlineKeyboardButton(text="❌ Отмена", callback_data="cancel_plan_creation")]
     ])
     
-    plan_text = f"📅 {current_date}\n📋 {plan_name}\n\n" + "\n".join(f"• {task}" for task in tasks)
+    plan_text = f"📅 {current_date}\n📋 {plan_name}\n\n" + "\n".join(task for task in tasks)
     await callback.message.edit_text(
         plan_text + "\n\nХотите опубликовать этот план в группу?",
         reply_markup=keyboard
@@ -1079,7 +1131,7 @@ async def publish_plan(callback: CallbackQuery, state: FSMContext):
     plan_name = data.get('plan_name')
     group_id = data.get('group_id')
     
-    plan_text = f"📅 {current_date}\n📋 {plan_name}\n\n" + "\n".join(f"• {task}" for task in tasks)
+    plan_text = f"📅 {current_date}\n📋 {plan_name}\n\n" + "\n".join(task for task in tasks)
     
     # Создаем клавиатуру с кнопкой для работы с планом
     keyboard = InlineKeyboardMarkup(inline_keyboard=[
@@ -1120,7 +1172,7 @@ async def show_plan_editor(message: Message, state: FSMContext, plan_data: dict)
         [InlineKeyboardButton(text="❌ Отмена", callback_data="cancel_plan_creation")]
     ])
     
-    plan_text = "📋 Ваш план:\n\n" + "\n".join(f"• {task}" for task in tasks)
+    plan_text = "📋 Ваш план:\n\n" + "\n".join(task for task in tasks)
     await message.edit_text(plan_text, reply_markup=keyboard)
 
 # Обработчик выбора существующих планов
@@ -1780,7 +1832,7 @@ async def process_study_time(message: Message, state: FSMContext):
         await state.clear()
         
     except ValueError:
-        await message.answer("❌ Пожалуйста, введите корректное число часов (например: 2.5):")
+        await message.answer("❌ Пожалуйста, введите корректное число часов:")
 
 # Добавляем обработчик команды /static
 @dp.message(Command('static'))

@@ -88,6 +88,7 @@ class PlanManagement(StatesGroup):
     adding_comment = State()
     editing_task = State()  
     adding_task = State()
+    waiting_for_study_time = State()  # Новое состояние
 
 # Клавиатура для личных сообщений
 personal_keyboard = ReplyKeyboardMarkup(
@@ -1703,6 +1704,7 @@ async def finish_day(callback: CallbackQuery, state: FSMContext):
     # Подсчитываем выполненные задачи
     completed_tasks = sum(1 for task in tasks if '✅' in task)
     
+    # Сохраняем данные о задачах
     # Всегда сохраняем в личную статистику пользователя
     save_completed_tasks(
         user_id=callback.from_user.id,
@@ -1717,21 +1719,68 @@ async def finish_day(callback: CallbackQuery, state: FSMContext):
             group_id=group_id,
             completed_tasks=completed_tasks
         )
-        # Отправляем сообщение только в группу
-        await callback.message.delete()  # Удаляем сообщение с кнопками
-        await bot.send_message(
-            chat_id=group_id,
-            text=f"🌙 {callback.from_user.mention_html()} завершил день!\n"
-                 f"✅ Выполнено задач: {completed_tasks}",
-            parse_mode="HTML"
-        )
-    else:
-        # В личном чате просто обновляем сообщение
-        message = f"🌙 День завершён!\n\n✅ Выполнено задач: {completed_tasks}"
-        await callback.message.edit_text(message)
     
-    await state.clear()
+    # Сохраняем текущие данные в состояние
+    await state.update_data(completed_tasks=completed_tasks)
+    
+    # Запрашиваем время обучения
+    await callback.message.edit_text(
+        "📚 Сколько часов вы сегодня учились?\n\n"
+        "Введите количество часов (например: 2.5)"
+    )
+    await state.set_state(PlanManagement.waiting_for_study_time)
     await callback.answer()
+
+# Обработчик ввода времени обучения
+@dp.message(PlanManagement.waiting_for_study_time)
+async def process_study_time(message: Message, state: FSMContext):
+    try:
+        study_hours = float(message.text.replace(',', '.'))
+        if study_hours < 0:
+            await message.answer("❌ Время не может быть отрицательным. Введите корректное значение:")
+            return
+        if study_hours > 24:
+            await message.answer("❌ Время не может быть больше 24 часов. Введите корректное значение:")
+            return
+            
+        data = await state.get_data()
+        completed_tasks = data.get('completed_tasks', 0)
+        group_id = data.get('group_id')
+        
+        # Сохраняем время в личную статистику
+        save_study_time(
+            user_id=message.from_user.id,
+            group_id=None,
+            study_hours=study_hours
+        )
+        
+        # Если план в группе, сохраняем время и в групповую статистику
+        if group_id:
+            save_study_time(
+                user_id=message.from_user.id,
+                group_id=group_id,
+                study_hours=study_hours
+            )
+            # Отправляем итоговое сообщение в группу
+            await bot.send_message(
+                chat_id=group_id,
+                text=f"🌙 {message.from_user.mention_html()} завершил день!\n"
+                     f"✅ Выполнено задач: {completed_tasks}\n"
+                     f"📚 Время обучения: {study_hours:.1f} ч.",
+                parse_mode="HTML"
+            )
+        else:
+            # В личном чате просто отправляем итог
+            await message.answer(
+                f"🌙 День завершён!\n\n"
+                f"✅ Выполнено задач: {completed_tasks}\n"
+                f"📚 Время обучения: {study_hours:.1f} ч."
+            )
+        
+        await state.clear()
+        
+    except ValueError:
+        await message.answer("❌ Пожалуйста, введите корректное число часов (например: 2.5):")
 
 # Добавляем обработчик команды /static
 @dp.message(Command('static'))
@@ -1740,27 +1789,31 @@ async def show_statistics(message: Message):
     
     if message.chat.type in ["group", "supergroup"]:
         # Показываем статистику группы
-        stats = get_group_completed_tasks(message.chat.id)
+        completed_stats = get_group_completed_tasks(message.chat.id)
+        study_time = get_group_study_time(message.chat.id)
         
-        if stats['total_completed'] == 0:
-            await message.answer("📊 В этой группе пока нет выполненных задач!")
+        if completed_stats['total_completed'] == 0 and study_time == 0:
+            await message.answer("📊 В этой группе пока нет статистики!")
             return
             
         await message.answer(
             f"📊 Статистика группы на {current_date}:\n\n"
-            f"✅ Всего выполнено задач: {stats['total_completed']}"
+            f"✅ Всего выполнено задач: {completed_stats['total_completed']}\n"
+            f"📚 Общее время обучения: {study_time:.1f} ч."
         )
     else:
         # Показываем личную статистику
         completed_tasks = get_user_completed_tasks(message.from_user.id)
+        study_time = get_user_study_time(message.from_user.id)
         
-        if completed_tasks == 0:
-            await message.answer("📊 У вас пока нет выполненных задач!")
+        if completed_tasks == 0 and study_time == 0:
+            await message.answer("📊 У вас пока нет статистики!")
             return
             
         await message.answer(
             f"📊 Ваша статистика на {current_date}:\n\n"
-            f"✅ Всего выполнено задач: {completed_tasks}"
+            f"✅ Всего выполнено задач: {completed_tasks}\n"
+            f"📚 Общее время обучения: {study_time:.1f} ч."
         )
 
 # Запуск бота

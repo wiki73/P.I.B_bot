@@ -87,6 +87,17 @@ def create_tables():
             FOREIGN KEY (user_id) REFERENCES users(user_id)
         )''')
         
+        # Таблица времени обучения
+        cursor.execute('''
+        CREATE TABLE IF NOT EXISTS study_time_stats (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            user_id INTEGER,
+            group_id INTEGER,
+            study_hours REAL NOT NULL,
+            date TEXT DEFAULT CURRENT_DATE,
+            FOREIGN KEY (user_id) REFERENCES users(user_id)
+        )''')
+        
         # Добавляем демо-планы, если таблица пуста
         if not cursor.execute('SELECT 1 FROM base_plans LIMIT 1').fetchone():
             default_plans = [
@@ -345,3 +356,40 @@ def get_group_completed_tasks(group_id: int) -> dict:
             'unique_users': result['unique_users'],
             'last_update': result['last_update']
         }
+
+# Функции для работы со временем обучения
+def save_study_time(user_id: int | None, group_id: int | None, study_hours: float):
+    """Сохраняет время обучения"""
+    with get_db_connection() as conn:
+        cursor = conn.cursor()
+        cursor.execute(
+            '''INSERT INTO study_time_stats 
+            (user_id, group_id, study_hours)
+            VALUES (?, ?, ?)''',
+            (user_id, group_id, study_hours)
+        )
+        conn.commit()
+
+def get_user_study_time(user_id: int) -> float:
+    """Получает общее время обучения пользователя"""
+    with get_db_connection() as conn:
+        cursor = conn.cursor()
+        cursor.execute('''
+            SELECT SUM(study_hours) as total
+            FROM study_time_stats
+            WHERE user_id = ?
+        ''', (user_id,))
+        result = cursor.fetchone()
+        return float(result['total']) if result['total'] is not None else 0.0
+
+def get_group_study_time(group_id: int) -> float:
+    """Получает общее время обучения в группе"""
+    with get_db_connection() as conn:
+        cursor = conn.cursor()
+        cursor.execute('''
+            SELECT SUM(study_hours) as total
+            FROM study_time_stats
+            WHERE group_id = ?
+        ''', (group_id,))
+        result = cursor.fetchone()
+        return float(result['total']) if result['total'] is not None else 0.0

@@ -1,5 +1,4 @@
 import sqlite3
-from typing import Optional, List, Dict, Any
 from contextlib import contextmanager
 
 @contextmanager
@@ -110,7 +109,7 @@ def create_tables():
         conn.commit()
 
 # Пользователи
-def get_user_name(user_id: int) -> Optional[str]:
+def get_user_name(user_id):
     """Получить имя пользователя по ID"""
     with get_db_connection() as conn:
         cursor = conn.cursor()
@@ -118,20 +117,20 @@ def get_user_name(user_id: int) -> Optional[str]:
         result = cursor.fetchone()
         return result['name'] if result else None
 
-def save_user_name(user_id: int, name: str):
+def save_user_name(user_id, name):
     """Сохранить или обновить имя пользователя"""
     with get_db_connection() as conn:
         conn.execute('INSERT OR REPLACE INTO users (user_id, name) VALUES (?, ?)', (user_id, name))
         conn.commit()
 
 # Базовые планы
-def get_base_plan() -> List[Dict[str, Any]]:
+def get_base_plan():
     with get_db_connection() as conn:
         cursor = conn.cursor()
         cursor.execute('SELECT id, name, plan_text FROM base_plans')
         return [dict(row) for row in cursor.fetchall()]
 
-def get_plan_name_by_id(plan_id: int) -> Optional[str]:
+def get_plan_name_by_id(plan_id):
     """Получить название плана по ID"""
     with get_db_connection() as conn:
         cursor = conn.cursor()
@@ -140,7 +139,7 @@ def get_plan_name_by_id(plan_id: int) -> Optional[str]:
         return result['name'] if result else None
 
 # Пользовательские планы
-def save_user_plan(user_id: int, name: str, text: str):
+def save_user_plan(user_id, name, text):
     """Сохраняет пользовательский план"""
     with get_db_connection() as conn:
         cursor = conn.cursor()
@@ -150,7 +149,7 @@ def save_user_plan(user_id: int, name: str, text: str):
         )
         conn.commit()
 
-def get_user_plan(user_id: int) -> List[Dict[str, Any]]:
+def get_user_plan(user_id):
     with get_db_connection() as conn:
         cursor = conn.cursor()
         cursor.execute('''
@@ -161,7 +160,7 @@ def get_user_plan(user_id: int) -> List[Dict[str, Any]]:
         return [dict(row) for row in cursor.fetchall()]
 
 # Текущие планы
-def update_user_current_plan(user_id: int, plan_name: str):
+def update_user_current_plan(user_id, plan_name):
     """Установить текущий план для пользователя"""
     with get_db_connection() as conn:
         conn.execute(
@@ -170,7 +169,7 @@ def update_user_current_plan(user_id: int, plan_name: str):
         )
         conn.commit()
 
-def get_current_plan(user_id: int) -> Optional[str]:
+def get_current_plan(user_id):
     """Получить текущий план пользователя"""
     with get_db_connection() as conn:
         cursor = conn.cursor()
@@ -179,7 +178,7 @@ def get_current_plan(user_id: int) -> Optional[str]:
         return result['plan_name'] if result else None
 
 # Поиск плана
-def get_plan_text_by_name(plan_name: str) -> Optional[str]:
+def get_plan_text_by_name(plan_name):
     """Получить текст плана по названию (ищет в базовых и пользовательских)"""
     with get_db_connection() as conn:
         cursor = conn.cursor()
@@ -195,7 +194,7 @@ def get_plan_text_by_name(plan_name: str) -> Optional[str]:
         
         return result['plan_text'] if result else None
 
-def save_public_plan(group_id: int, user_id: int, name: str, text: str):
+def save_public_plan(group_id, user_id, name, text):
     """Сохраняет публичный план для группы"""
     with get_db_connection() as conn:
         cursor = conn.cursor()
@@ -207,7 +206,7 @@ def save_public_plan(group_id: int, user_id: int, name: str, text: str):
         )
         conn.commit()
 
-def get_active_group_plan(group_id: int) -> Optional[dict]:
+def get_active_group_plan(group_id):
     """Получает активный план группы"""
     with get_db_connection() as conn:
         cursor = conn.cursor()
@@ -221,12 +220,12 @@ def get_active_group_plan(group_id: int) -> Optional[dict]:
         ''', (group_id,))
         return cursor.fetchone()
 
-def delete_user_plan(user_id: int, plan_id: int) -> bool:
+def delete_user_plan(user_id, plan_id):
     """Удаляет пользовательский план
     
     Args:
-        user_id (int): ID пользователя
-        plan_id (int): ID плана
+        user_id: ID пользователя
+        plan_id: ID плана
         
     Returns:
         bool: True если план успешно удален, False если план не найден или не принадлежит пользователю
@@ -256,7 +255,7 @@ def delete_user_plan(user_id: int, plan_id: int) -> bool:
         return True
 
 # Функции для работы со статистикой
-def save_plan_statistics(user_id: int, group_id: int | None, plan_name: str, total_tasks: int, completed_tasks: int):
+def save_plan_statistics(user_id, group_id, plan_name, total_tasks, completed_tasks):
     """Сохраняет статистику выполнения плана"""
     with get_db_connection() as conn:
         cursor = conn.cursor()
@@ -268,7 +267,7 @@ def save_plan_statistics(user_id: int, group_id: int | None, plan_name: str, tot
         )
         conn.commit()
 
-def get_user_statistics(user_id: int) -> List[Dict[str, Any]]:
+def get_user_statistics(user_id):
     """Получает статистику пользователя"""
     with get_db_connection() as conn:
         cursor = conn.cursor()
@@ -281,7 +280,7 @@ def get_user_statistics(user_id: int) -> List[Dict[str, Any]]:
         ''', (user_id,))
         return [dict(row) for row in cursor.fetchall()]
 
-def get_group_statistics(group_id: int) -> List[Dict[str, Any]]:
+def get_group_statistics(group_id):
     """Получает статистику группы"""
     with get_db_connection() as conn:
         cursor = conn.cursor()
@@ -300,7 +299,7 @@ def get_group_statistics(group_id: int) -> List[Dict[str, Any]]:
         ''', (group_id,))
         return [dict(row) for row in cursor.fetchall()]
 
-def save_completed_tasks(user_id: int | None, group_id: int | None, completed_tasks: int):
+def save_completed_tasks(user_id, group_id, completed_tasks):
     """Сохраняет количество выполненных задач"""
     with get_db_connection() as conn:
         cursor = conn.cursor()
@@ -312,7 +311,7 @@ def save_completed_tasks(user_id: int | None, group_id: int | None, completed_ta
         )
         conn.commit()
 
-def get_user_completed_tasks(user_id: int) -> int:
+def get_user_completed_tasks(user_id):
     """Получает общее количество выполненных задач пользователя"""
     with get_db_connection() as conn:
         cursor = conn.cursor()
@@ -324,7 +323,7 @@ def get_user_completed_tasks(user_id: int) -> int:
         result = cursor.fetchone()
         return result['total'] if result['total'] is not None else 0
 
-def get_group_completed_tasks(group_id: int) -> dict:
+def get_group_completed_tasks(group_id):
     """Получает статистику выполненных задач в группе"""
     with get_db_connection() as conn:
         cursor = conn.cursor()
@@ -358,7 +357,7 @@ def get_group_completed_tasks(group_id: int) -> dict:
         }
 
 # Функции для работы со временем обучения
-def save_study_time(user_id: int | None, group_id: int | None, study_hours: float):
+def save_study_time(user_id, group_id, study_hours):
     """Сохраняет время обучения"""
     with get_db_connection() as conn:
         cursor = conn.cursor()
@@ -370,7 +369,7 @@ def save_study_time(user_id: int | None, group_id: int | None, study_hours: floa
         )
         conn.commit()
 
-def get_user_study_time(user_id: int) -> float:
+def get_user_study_time(user_id):
     """Получает общее время обучения пользователя"""
     with get_db_connection() as conn:
         cursor = conn.cursor()
@@ -382,7 +381,7 @@ def get_user_study_time(user_id: int) -> float:
         result = cursor.fetchone()
         return float(result['total']) if result['total'] is not None else 0.0
 
-def get_group_study_time(group_id: int) -> float:
+def get_group_study_time(group_id):
     """Получает общее время обучения в группе"""
     with get_db_connection() as conn:
         cursor = conn.cursor()

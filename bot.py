@@ -1,5 +1,5 @@
 from aiogram import Bot, Dispatcher, types, F
-from aiogram.filters import CommandStart, Command
+from aiogram.filters import Command
 from aiogram.types import Message, InlineKeyboardMarkup, InlineKeyboardButton, CallbackQuery
 from aiogram.utils.keyboard import InlineKeyboardBuilder
 from aiogram.fsm.context import FSMContext
@@ -8,12 +8,17 @@ from datetime import datetime
 from config import load_config, set_bot_commands
 from database import *
 from keyboards import *
+from middlewares import StateLoggingMiddleware
 from utils import logger, send_message_with_keyboard
 from states import UserState, PlanCreation, PlanManagement, PlanView
+from handlers import base, plans
 
 config = load_config()
 bot = Bot(token=config.bot_token)
 dp = Dispatcher()
+dp.include_router(plans.router)
+dp.include_router(base.router)
+dp.update.middleware(StateLoggingMiddleware())
 
 @dp.callback_query(F.data == "cancel_plan_creation")
 async def handle_cancel_plan_creation(callback: CallbackQuery, state: FSMContext):
@@ -49,19 +54,6 @@ except Exception as e:
     logger.error(f"Ошибка при инициализации базы данных: {e}")
     raise
 
-@dp.message(lambda message: message.chat.type == "private" and not message.text.startswith('/'))
-async def private_chat_handler(message: Message, state: FSMContext):
-    current_state = await state.get_state()
-    if not current_state:
-        await send_message_with_keyboard(
-            message,
-            "Используйте кнопки меню или команды:"
-        )
-
-async def show_main_menu(message: Message):
-    await message.answer("Выберите действие:", reply_markup=main_menu_keyboard())
-
-
 @dp.message(UserState.waiting_for_nickname)
 async def process_nickname(message: Message, state: FSMContext):
     user_id = message.from_user.id
@@ -70,27 +62,6 @@ async def process_nickname(message: Message, state: FSMContext):
     await send_message_with_keyboard(message, f"Отлично, {user_nick}!")
     await state.clear()
     await show_main_menu(message)
-
-@dp.message(Command('help'))
-async def help_command(message: Message):
-    if message.chat.type == "private":
-        help_text = (
-            "Личные команды:\n"
-            "/start - Начало работы\n"
-            "/help - Показать это сообщение\n"
-            "/info - О планировании\n"
-            "/create_plan - Создать новый план\n"
-            "/view_plans - Посмотреть планы"
-        )
-
-        await send_message_with_keyboard(message, help_text, reply_markup=help_keyboard())
-    else:
-        await send_message_with_keyboard(
-            message,
-            "Групповые команды:\n"
-            "/new_day - Начать день\n"
-            "/static - Статистика"
-        )
 
 @dp.callback_query(F.data == "view_base_plans")
 async def handle_show_base_plans(callback: CallbackQuery):
@@ -279,81 +250,6 @@ async def info_command(message: Message):
     )
     await send_message_with_keyboard(message, info_text)
 
-@dp.message(Command('create_plan'))
-async def create_plan_command(message: types.Message, state: FSMContext):
-    if message.chat.type == "private":
-        await send_message_with_keyboard(
-            message,
-            "📝 Давайте создадим новый план.\n"
-            "Введите название для вашего плана:"
-        )
-        await state.set_state(PlanCreation.waiting_for_title)
-    else:
-        await send_message_with_keyboard(
-            message,
-            "Эта команда доступна только в личном чате с ботом."
-        )
-
-@dp.message(PlanCreation.waiting_for_title)
-async def process_plan_title(message: types.Message, state: FSMContext):
-    await state.update_data(title=message.text)
-    await message.answer(
-        "✏️ Теперь введите задачи для плана (каждая задача с новой строки):\n\n"
-        "Пример:\n"
-        "1. Зарядка\n"
-        "2. Завтрак\n"
-        "3. Работа над проектом"
-    )
-    await state.set_state(PlanCreation.waiting_for_tasks)
-
-@dp.message(PlanCreation.waiting_for_tasks)
-async def process_plan_tasks(message: types.Message, state: FSMContext):
-    tasks = message.text.split('\n')
-    data = await state.get_data()
-    
-    formatted_tasks = "\n".join(task.strip() for task in tasks if task.strip())
-    
-    await state.update_data(tasks=formatted_tasks)
-    
-    preview = (
-        f"📋 <b>{data['title']}</b>\n\n"
-        f"{formatted_tasks}\n\n"
-        "Всё верно? (да/нет)"
-    )
-    
-    await send_message_with_keyboard(message, preview, parse_mode='HTML')
-    await state.set_state(PlanCreation.waiting_for_confirmation)
-
-@dp.message(PlanCreation.waiting_for_confirmation, F.text.lower().in_(['да', 'нет']))
-async def confirm_plan(message: types.Message, state: FSMContext):
-    if message.text.lower() == 'да':
-        data = await state.get_data()
-        user_id = message.from_user.id
-        
-        save_user_plan(
-            user_id=user_id,
-            name=data['title'],
-            text=data['tasks']
-        )
-        
-        await send_message_with_keyboard(
-            message,
-            f"✅ План <b>{data['title']}</b> успешно сохранён!\n"
-            "Теперь вы можете использовать его в своём расписании.",
-            parse_mode='HTML'
-        )
-    else:
-        await send_message_with_keyboard(
-            message,
-            "Создание плана отменено.\n"
-            "Если хотите начать заново, введите /create_plan"
-        )
-    
-    await state.clear()
-
-@dp.message(PlanCreation.waiting_for_confirmation)
-async def wrong_confirmation(message: Message):
-    await send_message_with_keyboard(message, "Пожалуйста, ответьте 'да' или 'нет'")
 
 @dp.message(Command('view_plans'))
 async def view_plans_command(message: types.Message, state: FSMContext):
@@ -568,44 +464,6 @@ async def cancel_new_day(callback: CallbackQuery):
         parse_mode="HTML"
     )
     await callback.answer()
-
-@dp.message(CommandStart())
-async def start_command(message: Message, state: FSMContext):
-    args = message.text.split()[1:]
-    logger.info('/start args: ' + str(args))
-    if len(args) > 0:
-        group_id = int(args[0].split('_')[1])
-
-        await state.update_data(group_id=group_id)
-        await state.set_state(UserState.choosing_plan_type)
-        await show_plan_creation_options(message, state)
-    else:
-        user_id = message.from_user.id
-        user_name = get_user_name(user_id)
-        
-        if user_name is None:
-            await send_message_with_keyboard(
-                message,
-                'Привет! Я твой бот для планирования. Как мне тебя называть?'
-            )
-            await state.set_state(UserState.waiting_for_nickname)
-        else:
-            await send_message_with_keyboard(
-                message,
-                f"Привет, {user_name}! Чем могу помочь?"
-            )
-            await show_main_menu(message)
-
-async def show_plan_creation_options(message: Message, state: FSMContext):
-    user_id = message.from_user.id
-    current_plan_name: str | None = get_current_plan(user_id)
-    
-    await send_message_with_keyboard(
-        message,
-        "Выберите действие:",
-        reply_markup=plan_creation_options_keyboard(current_plan_name)
-    )
-    await state.set_state(UserState.choosing_plan_type)
 
 @dp.callback_query(UserState.choosing_plan_type)
 async def handle_plan_type_choice(callback: CallbackQuery, state: FSMContext):

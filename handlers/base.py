@@ -1,0 +1,68 @@
+from aiogram import Router, types
+from aiogram.filters import CommandStart, Command
+from aiogram.fsm.context import FSMContext
+from keyboards.inline import help_keyboard
+from utils import logger
+from states import UserState
+from utils import show_plan_creation_options, send_message_with_keyboard, show_main_menu
+from database import get_user_name
+
+router = Router()
+
+@router.message(CommandStart())
+async def start_command(message: types.Message, state: FSMContext):
+    args = message.text.split()[1:]
+    logger.info('/start args: ' + str(args))
+    if len(args) > 0:
+        group_id = int(args[0].split('_')[1])
+
+        await state.update_data(group_id=group_id)
+        await state.set_state(UserState.choosing_plan_type)
+        await show_plan_creation_options(message, state)
+    else:
+        user_id = message.from_user.id
+        user_name = get_user_name(user_id)
+        
+        if user_name is None:
+            await send_message_with_keyboard(
+                message,
+                'Привет! Я твой бот для планирования. Как мне тебя называть?'
+            )
+            await state.set_state(UserState.waiting_for_nickname)
+        else:
+            await send_message_with_keyboard(
+                message,
+                f"Привет, {user_name}! Чем могу помочь?"
+            )
+            await show_main_menu(message)
+
+@router.message(Command('help'))
+async def help_command(message: types.Message):
+    if message.chat.type == "private":
+        help_text = (
+            "Личные команды:\n"
+            "/start - Начало работы\n"
+            "/help - Показать это сообщение\n"
+            "/info - О планировании\n"
+            "/create_plan - Создать новый план\n"
+            "/view_plans - Посмотреть планы"
+        )
+
+        await send_message_with_keyboard(message, help_text, reply_markup=help_keyboard())
+    else:
+        await send_message_with_keyboard(
+            message,
+            "Групповые команды:\n"
+            "/new_day - Начать день\n"
+            "/static - Статистика"
+        )
+
+
+@router.message(lambda message: message.chat.type == "private" and not message.text.startswith('/'))
+async def private_chat_handler(message: types.Message, state: FSMContext):
+    current_state = await state.get_state()
+    if not current_state:
+        await send_message_with_keyboard(
+            message,
+            "Используйте кнопки меню или команды:"
+        )

@@ -142,3 +142,18 @@ python3 bot.py
 
 - Python 3.7+
 - Все необходимые библиотеки указаны в `requirements.txt` 
+
+
+### Local development
+
+1. Install dependencies
+
+```bash
+pip install requirements.txt
+```
+
+2. Start program
+
+```bash
+python bot.py
+```

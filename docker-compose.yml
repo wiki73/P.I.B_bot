@@ -1,0 +1,23 @@
+version: "3.8"
+
+services:
+  bot:
+    build: .
+    container_name: telegram_bot
+    volumes:
+      - ./data:/app/data
+      - ./.env:/app/.env
+    restart: unless-stopped
+    environment:
+      - TZ=UTC
+    depends_on:
+      - db
+
+  db:
+    image: alpine:latest
+    container_name: sqlite_db
+    volumes:
+      - ./data:/data
+    command: >
+      sh -c "mkdir -p /data && chmod 777 /data"
+    restart: unless-stopped

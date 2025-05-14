@@ -87,7 +87,7 @@ def plan_edit_keyboard() -> InlineKeyboardMarkup:
 
 def plan_actions_keyboard(plan_name: str, plan_type: Literal["base", "user"], plan_id: str) -> InlineKeyboardMarkup:
     buttons = [
-        [InlineKeyboardButton(text="📌 Сделать текущим", callback_data=f"set_current_plan:{plan_name}")],
+        [InlineKeyboardButton(text="📌 Сделать текущим", callback_data=f"use_plan:{plan_type}:{plan_id}")],
         [InlineKeyboardButton(text="◀️ Назад", callback_data="back_to_plan_types")]
     ]
 
@@ -157,7 +157,7 @@ def task_comments_keyboard(tasks: List[Dict]) -> InlineKeyboardMarkup:
 
 def current_plan_keyboard() -> InlineKeyboardMarkup:
     buttons = [
-        [InlineKeyboardButton(text="✏️ Редактировать", callback_data="edit_current_plan")]
+        [InlineKeyboardButton(text="✏️ Редактировать", callback_data="edit_current_plan")],
         [back_button()]
     ]
 
@@ -166,7 +166,7 @@ def current_plan_keyboard() -> InlineKeyboardMarkup:
 def plan_editor_keyboard() -> InlineKeyboardMarkup:
     buttons = [
         [InlineKeyboardButton(text="✏️ Редактировать задачи", callback_data="edit_tasks")],
-        [InlineKeyboardButton(text="✅ Сохранить", callback_data="save_current_plan")]
+        [InlineKeyboardButton(text="✅ Сохранить", callback_data="save_current_plan")],
         [back_button()]
     ]
 
@@ -179,3 +179,24 @@ def plan_confirmation_keyboard() -> InlineKeyboardMarkup:
     ]
 
     return InlineKeyboardMarkup(inline_keyboard=buttons)
+
+
+def existing_plans_keyboard() -> InlineKeyboardMarkup:
+    buttons = [
+        [InlineKeyboardButton(text="Базовые планы", callback_data="select_base_plans")],
+        [InlineKeyboardButton(text="Мои планы", callback_data="select_user_plans")]
+    ]
+
+    return InlineKeyboardMarkup(inline_keyboard=buttons)
+
+def plan_management_keyboard(user_id: int) -> InlineKeyboardMarkup:
+    buttons = [
+         [InlineKeyboardButton(
+            text="⚙️ Управление планом",
+            callback_data=f"manage_plan:{str(user_id)}"
+        )]
+    ]
+
+    return InlineKeyboardMarkup(inline_keyboard=buttons)
+
+

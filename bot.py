@@ -9,7 +9,7 @@ from config import load_config, set_bot_commands
 from database import *
 from keyboards import *
 from middlewares import StateLoggingMiddleware
-from utils import logger, send_message_with_keyboard
+from utils import logger, send_message_with_keyboard, show_existing_plans, show_main_menu, show_management_menu
 from states import UserState, PlanCreation, PlanManagement, PlanView
 from handlers import base, plans
 
@@ -120,9 +120,11 @@ async def handle_plan_action(callback: CallbackQuery, state: FSMContext):
         tasks = selected_plan['plan_text'].split('\n')
         
         await state.update_data(
+            is_new_plan=False,
             selected_plan=selected_plan,
             tasks=tasks,
             plan_name=selected_plan['name'],
+            header=selected_plan['name'],
             current_date=current_date
         )
         
@@ -239,18 +241,6 @@ async def show_current_plan(callback: CallbackQuery):
         await callback.message.edit_text("Не удалось загрузить план.", reply_markup=back_keyboard())
     await callback.answer()
 
-@dp.message(Command('info'))
-async def info_command(message: Message):
-    info_text = (
-        "Планирование помогает:\n\n"
-        "1. Избежать суеты в течение дня\n"
-        "2. Освободить время для отдыха\n"
-        "3. Развивать дисциплину\n\n"
-        "Попробуйте создать свой первый план!"
-    )
-    await send_message_with_keyboard(message, info_text)
-
-
 @dp.message(Command('view_plans'))
 async def view_plans_command(message: types.Message, state: FSMContext):
     if message.chat.type != "private":
@@ -280,18 +270,18 @@ async def view_plans_command(message: types.Message, state: FSMContext):
     )
     await state.set_state(PlanView.viewing_plans)
 
-@dp.callback_query()
-async def handle_callback_query(callback: CallbackQuery ):
-    try:
-        if callback.message.chat.type == "private":
-            await callback.message.answer(
-                "Используйте меню для быстрого доступа:",
-                reply_markup=personal_keyboard()
-            )
-    except Exception as e:
-        logger.error(f"Ошибка при обработке callback: {e}")
+# @dp.callback_query()
+# async def handle_callback_query(callback: CallbackQuery ):
+#     try:
+#         if callback.message.chat.type == "private":
+#             await callback.message.answer(
+#                 "Используйте меню для быстрого доступа:",
+#                 reply_markup=personal_keyboard()
+#             )
+#     except Exception as e:
+#         logger.error(f"Ошибка при обработке callback: {e}")
     
-    await callback.answer()
+#     await callback.answer()
 
 @dp.callback_query(F.data == "view_base_plans", PlanView.viewing_plans)
 async def show_base_plans(callback: types.CallbackQuery):
@@ -359,22 +349,9 @@ async def show_user_plans(callback: types.CallbackQuery, state: FSMContext):
 
 @dp.callback_query(F.data == "back_to_plan_types")
 async def back_to_plan_types(callback: types.CallbackQuery):
-    builder = InlineKeyboardBuilder()
-    builder.add(
-        types.InlineKeyboardButton(
-            text="Базовые планы",
-            callback_data="view_base_plans"
-        ),
-        types.InlineKeyboardButton(
-            text="Мои планы",
-            callback_data="view_user_plans"
-        )
-    )
-    builder.adjust(1)
-    
     await callback.message.edit_text(
         "📂 Выберите тип планов для просмотра:",
-        reply_markup=builder.as_markup()
+        reply_markup=existing_plans_keyboard()
     )
     await callback.answer()
 
@@ -417,7 +394,9 @@ async def select_plan(callback: types.CallbackQuery):
 
 @dp.callback_query(F.data.startswith("use_plan:"))
 async def use_plan(callback: types.CallbackQuery):
+    logger.info(callback.data)
     _, plan_type, plan_id = callback.data.split(':')
+    logger.info('plan_type ' + plan_type + "plan_id" + plan_id)
     
     if plan_type == "base":
         plans = get_base_plan()
@@ -524,6 +503,11 @@ async def start_task_editing(callback: CallbackQuery, state: FSMContext):
     plan_text += "Текущие задачи:\n" + "\n".join(task for task in tasks)
     plan_text += "\n\nВыберите действие:"
     
+    await state.update_data({
+            'tasks': tasks,
+            'message_id': callback.message.message_id,
+            'chat_id': callback.message.chat.id
+        })
     await callback.message.edit_text(plan_text, reply_markup=task_edit_keyboard(tasks))
     await state.set_state(UserState.editing_plan)
     await callback.answer()
@@ -651,7 +635,7 @@ async def process_comment(message: Message, state: FSMContext):
         )
         
         await state.set_state(PlanManagement.managing_plan)
-        await message.answer("Комментарий успешно добавлен!")
+        await message.delete()
     except Exception as e:
         logger.error(f"Ошибка в process_comment: {e}")
         await message.answer("Ошибка при добавлении комментария")
@@ -728,6 +712,8 @@ async def process_task_edit(message: Message, state: FSMContext):
         task_index = data['editing_task_index']
         tasks = data['tasks']
         
+        logger.info(data)
+
         old_task = tasks[task_index]
         marks = '✅' if '✅' in old_task else ''
         comment = ''
@@ -737,14 +723,13 @@ async def process_task_edit(message: Message, state: FSMContext):
         tasks[task_index] = f"{marks} {message.text}{comment}".strip()
         await state.update_data({'tasks': tasks})
         
-        header = data['header']
-        full_plan = f"{header}\n" + "\n".join(tasks)
+        name = data['header']
+        logger.info('name - ' + name)
+        full_plan = f"{name}\n" + "\n".join(tasks)
         
-        await message.bot.edit_message_text(
-            chat_id=data['chat_id'],
-            message_id=data['message_id'],
+        await message.answer(
             text=full_plan,
-            reply_markup=management_keyboard()
+            reply_markup=plan_edit_keyboard()
         )
         
         await message.answer("Пункт успешно обновлен!")

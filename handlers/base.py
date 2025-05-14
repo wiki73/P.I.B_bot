@@ -1,6 +1,7 @@
 from aiogram import Router, types
 from aiogram.filters import CommandStart, Command
 from aiogram.fsm.context import FSMContext
+from aiogram.types import Message
 from keyboards.inline import help_keyboard
 from utils import logger
 from states import UserState
@@ -66,3 +67,14 @@ async def private_chat_handler(message: types.Message, state: FSMContext):
             message,
             "Используйте кнопки меню или команды:"
         )
+
+@router.message(Command('info'))
+async def info_command(message: Message):
+    info_text = (
+        "Планирование помогает:\n\n"
+        "1. Избежать суеты в течение дня\n"
+        "2. Освободить время для отдыха\n"
+        "3. Развивать дисциплину\n\n"
+        "Попробуйте создать свой первый план!"
+    )
+    await send_message_with_keyboard(message, info_text)

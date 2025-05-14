@@ -161,7 +161,7 @@ def get_current_plan(user_id):
 
 
 def get_plan_text_by_name(plan_name):
-    with connection() as conn:
+    with get_db_connection() as conn:
         cursor = conn.cursor()
         cursor.execute('SELECT plan_text FROM base_plans WHERE name = ?', (plan_name,))
         result = cursor.fetchone()

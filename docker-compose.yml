@@ -10,6 +10,9 @@ services:
     restart: unless-stopped
     environment:
       - TZ=UTC
+      - TOKEN=${BOT_TOKEN}
+    env_file:
+      - .env
     depends_on:
       - db
 
@@ -19,5 +22,5 @@ services:
     volumes:
       - ./data:/data
     command: >
-      sh -c "mkdir -p /data && chmod 777 /data"
+      sh -c "mkdir -p /data && chmod 777 /data && tail -f /dev/null"
     restart: unless-stopped

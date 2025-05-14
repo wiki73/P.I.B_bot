@@ -184,7 +184,7 @@ async def handle_existing_plan_choice(callback: CallbackQuery, state: FSMContext
 async def create_plan_start(callback: CallbackQuery, state: FSMContext):
     await callback.message.edit_text(
         "📝 Введите название для нового плана:",
-        reply_markup=create_plan_keyboard
+        reply_markup=create_plan_keyboard()
     )
     await state.set_state(PlanCreation.waiting_for_title)
     await callback.answer()

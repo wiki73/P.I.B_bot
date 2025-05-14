@@ -34,10 +34,7 @@ def plans_keyboard(plans: List[Dict], type: Literal["base", "user"]) -> InlineKe
     return InlineKeyboardMarkup(inline_keyboard=buttons)
 
 def create_plan_keyboard() -> InlineKeyboardMarkup:
-    buttons = [
-        [InlineKeyboardButton(text="Создать план", callback_data="create_plan")]
-        [back_button()]
-    ]
+    buttons = [[back_button()]]
 
     return InlineKeyboardMarkup(inline_keyboard=buttons)
 

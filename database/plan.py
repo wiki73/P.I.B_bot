@@ -25,25 +25,33 @@ def create_base_plan(name: str) -> Plan:
     return plan
 
 def create_user_plan(name: str, user_id: str, tasks_text: str = None) -> Plan:
-    with db.transaction():
-        user = db.session.query(User).filter(User.id == user_id).first()
-        plan = Plan(name=name)
-        plan.users.append(user)
-        db.session.add(plan)
-        db.session.refresh(plan)
-        
-        if tasks_text:
-            tasks = [task.strip() for task in tasks_text.split('\n') if task.strip()]
-            for task_body in tasks:
-                task = Task(
-                    plan_id=plan.id,
-                    body=task_body
-                )
-                db.session.add(task)
-            db.session.refresh(plan)
+    try:
+        with db.transaction():
+            user = db.session.query(User).filter(User.telegram_id == user_id).first()
+            if not user:
+                raise ValueError("User not found")
+                
+            plan = Plan(name=name)
+            plan.users.append(user)
+            db.session.add(plan)
+            db.session.flush()
             
-    return plan
-
+            if tasks_text:
+                tasks = [task.strip() for task in tasks_text.split('\n') if task.strip()]
+                for task_body in tasks:
+                    task = Task(
+                        plan_id=plan.id,
+                        body=task_body
+                    )
+                    db.session.add(task)
+            
+            db.session.commit()
+            return plan
+            
+    except Exception as e:
+        logger.error(f"Database transaction error: {e}")
+        db.session.rollback()
+        raise
 def get_current_plan(telegram_id: int) -> Plan | None:
     user = db.session.query(User).filter(User.telegram_id == telegram_id).first()
     return user.current_plan if user else None

@@ -23,7 +23,7 @@ def create_default_plans():
 
 if __name__ == "__main__":
     print("Initializing database...")
-    init_db()  # Создаем таблицы если их нет
+    init_db() 
     print("Creating default plans...")
     create_default_plans()
     print("Database initialized successfully!") 

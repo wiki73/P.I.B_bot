@@ -1,13 +1,15 @@
 from datetime import datetime
+from typing import List
 from aiogram import Router, F, types, Bot
 from aiogram.filters import Command
 from aiogram.fsm.context import FSMContext
 from aiogram.types import Message, CallbackQuery
 from database.plan import create_user_plan, get_base_plans, get_current_plan, get_user_plans, set_current_plan
 from keyboards.inline import back_keyboard, current_plan_keyboard, existing_plans_keyboard, main_menu_keyboard, management_keyboard, new_day_keyboard, plan_actions_keyboard, plan_confirmation_keyboard, plan_edit_keyboard, plan_editor_keyboard, plan_management_keyboard, plan_tasks_edit_keyboard, plans_keyboard, task_comments_keyboard, task_edit_keyboard, task_marking_keyboard, base_plans_keyboard, task_position_keyboard, user_plans_keyboard, select_plan_keyboard
+from models import Plan, Task
 from states.plans import PlanCreation, PlanManagement, PlanView
 from states.user import UserState
-from utils import get_plan_body, send_message_with_keyboard, logger, show_existing_plans, show_management_menu
+from utils import get_full_plan, get_plan_body, send_message_with_keyboard, logger, show_existing_plans, show_management_menu
 
 router = Router()
 
@@ -102,16 +104,10 @@ async def select_task_position(callback: CallbackQuery, state: FSMContext):
 @router.callback_query(F.data == "finish_plan")
 async def finish_plan_editing(callback: CallbackQuery, state: FSMContext):
     data = await state.get_data()
-    tasks = data.get('tasks', [])
-    current_date = datetime.now().strftime("%d.%m.%Y")
-    plan_name = data.get('plan_name')
+    plan = data.get('plan')
 
-    logger.info('data: ', data)
-    
-    plan_text = f"📅 {current_date}\n📋 {plan_name}\n\n" + "\n".join(task for task in tasks)
-    # plan_text = "\n ".join(task for task in tasks)
     await callback.message.edit_text(
-        plan_text + "\n\nХотите опубликовать этот план в группу?",
+        get_full_plan(plan) + "\n\nХотите опубликовать этот план в группу?",
         reply_markup=plan_confirmation_keyboard()
     )
     await state.set_state(UserState.publishing_plan)
@@ -504,7 +500,7 @@ async def handle_plan_type_choice(callback: CallbackQuery, state: FSMContext):
     data = await state.get_data()
     
     if callback.data == "use_existing_plan":
-        await show_existing_plans(callback, state)
+        await show_existing_plans(callback)
         await state.set_state(UserState.selecting_existing_plan)
     elif callback.data == "create_new_plan":
         current_date = datetime.now().strftime("%d.%m.%Y")
@@ -747,26 +743,16 @@ async def select_task_to_edit(callback: CallbackQuery, state: FSMContext):
 async def process_task_edit(message: Message, state: FSMContext):
     try:
         data = await state.get_data()
-        task_index = data['editing_task_index']
-        tasks = data['tasks']
-        
-        logger.info(data)
+        plan: Plan = data.get('plan')
+        tasks: List[Task] = plan.tasks
+        index_to_update: int= data['editing_task_index']
+        tasks[index_to_update].body = message.text
+        plan.tasks = tasks
 
-        old_task = tasks[task_index]
-        marks = '✅' if '✅' in old_task else ''
-        comment = ''
-        if '💬' in old_task:
-            comment = ' 💬' + old_task.split('💬')[1]
-        
-        tasks[task_index] = f"{marks} {message.text}{comment}".strip()
         await state.update_data(tasks = tasks)
         
-        name = data['header']
-        logger.info('name - ' + name)
-        full_plan = f"{name}\n" + "\n".join(tasks)
-        
         await message.answer(
-            text=full_plan,
+            text=get_full_plan(plan),
             reply_markup=plan_edit_keyboard()
         )
         
@@ -836,6 +822,7 @@ async def edit_current_plan(callback: CallbackQuery, state: FSMContext):
     tasks = plan_body.split('\n')
     
     await state.update_data(
+        plan=plan,
         tasks=tasks,
         plan_name=plan.name,
         current_date=current_date

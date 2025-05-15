@@ -30,6 +30,7 @@ class User(Base):
     plans = relationship("Plan", secondary=user_plans, back_populates="users")
     current_plan = relationship("Plan", foreign_keys=[current_plan_id])
     statistics = relationship("Statistic", back_populates="user")
+    comments = relationship("Comment", back_populates="author")
 
 class Plan(Base):
     __tablename__ = 'plans'
@@ -49,10 +50,25 @@ class Task(Base):
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     plan_id = Column(UUID(as_uuid=True), ForeignKey('plans.id'), nullable=False)
     body = Column(Text, nullable=False)
+    checked = Column(Boolean, default=False, nullable=False)
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
     
     plan = relationship("Plan", back_populates="tasks")
+    comments = relationship("Comment", back_populates="task")
+
+class Comment(Base):
+    __tablename__ = 'comments'
+    
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    task_id = Column(UUID(as_uuid=True), ForeignKey('tasks.id'), nullable=False)
+    author_id = Column(UUID(as_uuid=True), ForeignKey('users.id'), nullable=False)
+    body = Column(Text, nullable=False)
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+    updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
+    
+    task = relationship("Task", back_populates="comments")
+    author = relationship("User", back_populates="comments")
 
 class Statistic(Base):
     __tablename__ = 'statistics'
@@ -82,4 +98,4 @@ def get_db():
     try:
         yield db
     finally:
-        db.close() 
+        db.close()

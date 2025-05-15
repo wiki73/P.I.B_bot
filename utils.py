@@ -1,3 +1,4 @@
+from datetime import datetime
 from aiogram.types import  Message, InlineKeyboardMarkup, CallbackQuery
 from aiogram.fsm.context import FSMContext
 from database.plan import get_current_plan
@@ -49,5 +50,14 @@ async def show_management_menu(message: Message):
     await message.edit_reply_markup(reply_markup=management_keyboard())
 
 def get_plan_body(plan: Plan) -> str:
+    logger.info(str(plan))
     return "\n".join(task.body for task in plan.tasks)
     
+
+def get_full_plan(plan: Plan) -> str:
+    current_date = datetime.now().strftime("%d.%m.%Y")
+
+    return f"""📅{current_date}
+📝{plan.name}
+{get_plan_body(plan)}
+"""

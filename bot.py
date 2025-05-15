@@ -15,11 +15,10 @@ async def main():
     bot = Bot(token=config.bot_token)
     dp = Dispatcher()
     
-    # Register routers in correct order - from most specific to most general
-    dp.include_router(user.router)  # User-specific handlers first
-    dp.include_router(plans.router)  # Then plan-related handlers
-    dp.include_router(statistics.router)  # Then statistics
-    dp.include_router(base.router)  # Base handlers with catch-all last
+    dp.include_router(user.router)  
+    dp.include_router(plans.router)  
+    dp.include_router(statistics.router) 
+    dp.include_router(base.router)  
     
     await set_bot_commands(bot)
     await dp.start_polling(bot)

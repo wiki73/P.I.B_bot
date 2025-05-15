@@ -44,7 +44,6 @@ async def handle_show_user_plans(callback: CallbackQuery):
         db.refresh_session()
         
         user_plans = get_user_plans(callback.from_user.id)
-        logger.info(f'user_plans: {user_plans}')
         
         if not user_plans:
             await callback.message.edit_text(

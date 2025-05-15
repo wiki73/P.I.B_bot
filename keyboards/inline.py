@@ -94,7 +94,7 @@ def plan_actions_keyboard(plan_name: str, plan_type: Literal["base", "user"], pl
     ]
 
     if plan_type == 'user':
-        buttons.insert(1, [InlineKeyboardButton(text="🗑 Удалить план", callback_data=f"confirm_delete_plan:{plan_type}:{plan_id}")])
+        buttons.insert(1, [InlineKeyboardButton(text="🗑 Удалить план", callback_data=f"delete_plan:{plan_type}:{plan_id}")])
 
     return InlineKeyboardMarkup(inline_keyboard=buttons)
 
@@ -120,15 +120,14 @@ def task_position_keyboard(tasks: List[Dict]) -> InlineKeyboardMarkup:
 
     return InlineKeyboardMarkup(inline_keyboard=buttons)
 
-def task_marking_keyboard(tasks: List[Dict]) -> InlineKeyboardMarkup:
+def task_marking_keyboard(tasks: List[Task]) -> InlineKeyboardMarkup:
     keyboard = InlineKeyboardBuilder()
 
     for i, task in enumerate(tasks):
-        clean_task = task.replace('✅', '').strip()
-        prefix = "✓ " if '✅' in task else f"{i+1}."
+        prefix = "✅" if task.checked else f"🟩"
         keyboard.add(InlineKeyboardButton(
-            text=f"{prefix} {clean_task}",
-            callback_data=f"toggle_{i}"
+            text=f"{prefix} {task.body}",
+            callback_data=f"task_action:{i}"
         ))
     
     keyboard.adjust(1)
@@ -158,7 +157,7 @@ def task_comments_keyboard(tasks: List[Task]) -> InlineKeyboardMarkup:
 
 def current_plan_keyboard() -> InlineKeyboardMarkup:
     buttons = [
-        [InlineKeyboardButton(text="✏️ Редактировать", callback_data="edit_current_plan")],
+        [InlineKeyboardButton(text="✏️ Редактировать", callback_data="edit_tasks")],
         [back_button()]
     ]
 
@@ -184,8 +183,8 @@ def plan_confirmation_keyboard() -> InlineKeyboardMarkup:
 
 def existing_plans_keyboard() -> InlineKeyboardMarkup:
     buttons = [
-        [InlineKeyboardButton(text="Базовые планы", callback_data="select_base_plans")],
-        [InlineKeyboardButton(text="Мои планы", callback_data="select_user_plans")]
+        [InlineKeyboardButton(text="Базовые планы", callback_data="view_base_plans")],
+        [InlineKeyboardButton(text="Мои планы", callback_data="view_user_plans")]
     ]
 
     return InlineKeyboardMarkup(inline_keyboard=buttons)
@@ -201,16 +200,12 @@ def plan_management_keyboard(user_id: int) -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(inline_keyboard=buttons)
 
 
-def plan_tasks_edit_keyboard (tasks: List[Dict]) -> InlineKeyboardMarkup:
+def plan_tasks_edit_keyboard (tasks: List[Task]) -> InlineKeyboardMarkup:
     builder = InlineKeyboardBuilder()
 
     for i, task in enumerate(tasks):
-        suffix = ''
-        if len(task) > 20:
-            suffix = '...'
-        
         builder.row(InlineKeyboardButton(
-            text=f'{i+1}. {task[:20]}{suffix}',
+            text=f'{i+1}. {task.body}',
             callback_data=f"edit_task_{i}"
         ))
     builder.row(InlineKeyboardButton(

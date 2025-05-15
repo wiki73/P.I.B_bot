@@ -4,12 +4,14 @@ from aiogram import Router, F, types, Bot
 from aiogram.filters import Command
 from aiogram.fsm.context import FSMContext
 from aiogram.types import Message, CallbackQuery
-from database.plan import add_comment_to_task, create_user_plan, get_base_plans, get_current_plan, get_user_plans, publish_user_plan, set_current_plan
+from database.plan import add_comment_to_task, create_user_plan, delete_user_plan, get_base_plans, get_current_plan, get_user_plans, publish_user_plan, set_current_plan
+from database.statistics import create_statistic, update_statistic
+from database.user import get_user_by_telegram_id
 from keyboards.inline import back_keyboard, current_plan_keyboard, existing_plans_keyboard, main_menu_keyboard, management_keyboard, new_day_keyboard, plan_actions_keyboard, plan_confirmation_keyboard, plan_edit_keyboard, plan_editor_keyboard, plan_management_keyboard, plan_tasks_edit_keyboard, plans_keyboard, task_comments_keyboard, task_edit_keyboard, task_marking_keyboard, base_plans_keyboard, task_position_keyboard, user_plans_keyboard, select_plan_keyboard
-from models import Comment, Plan, Task
+from models import Plan, Statistic, Task
 from states.plans import PlanCreation, PlanManagement, PlanView
 from states.user import UserState
-from utils import get_full_plan, get_plan_body, send_message_with_keyboard, logger, show_existing_plans, show_management_menu
+from utils import get_full_current_plan, get_full_plan, get_plan_body, get_plan_by_type_user_id_plan_id, get_plan_published_message, send_message_with_keyboard, logger, show_existing_plans, show_management_menu
 
 router = Router()
 
@@ -104,13 +106,18 @@ async def select_task_position(callback: CallbackQuery, state: FSMContext):
 @router.callback_query(F.data == "finish_plan")
 async def finish_plan_editing(callback: CallbackQuery, state: FSMContext):
     data = await state.get_data()
-    plan = data.get('plan')
-    
+    plan: Plan = data.get('plan')
+    group_id = data.get('group_id')
 
-
+    reply_markup = main_menu_keyboard()
+    if group_id:
+        reply_markup = plan_confirmation_keyboard()
+    elif get_user_by_telegram_id(callback.from_user.id).published_plan_id == plan.id:
+        reply_markup = management_keyboard()
     await callback.message.edit_text(
         get_full_plan(plan) + "\n\nХотите опубликовать этот план в группу?",
-        reply_markup=plan_confirmation_keyboard()
+        reply_markup=reply_markup,
+        parse_mode='HTML'
     )
     await state.set_state(UserState.publishing_plan)
     await callback.answer()
@@ -123,16 +130,15 @@ async def publish_plan(callback: CallbackQuery, state: FSMContext, bot: Bot):
     plan: Plan = data.get('plan')
 
     publish_user_plan(user_id, plan.id)
-    
-    text = f"🌅 <strong>{callback.from_user.mention_html()} опубликовал свой план на сегодня:</strong>\n{get_full_plan(plan)}"
 
     await bot.send_message(
         chat_id=data.get('group_id'),
-        text=text,
+        text=get_plan_published_message(plan, callback.from_user.mention_html()),
         parse_mode="HTML",
         reply_markup=plan_management_keyboard(user_id)
     )
     await state.update_data(plan=plan)
+    await callback.message.edit_text(f"План <b><u>{plan.name}</u></b> опубликован 🥳", parse_mode='HTML', reply_markup=back_keyboard())
     await callback.answer()
 
 
@@ -155,34 +161,26 @@ async def manage_plan_handler(callback: CallbackQuery, state: FSMContext):
     finally:
         await callback.answer()
 
-@router.callback_query(PlanManagement.marking_tasks, F.data.startswith("toggle_"))
+@router.callback_query(PlanManagement.marking_tasks, F.data.startswith("task_action:"))
 async def toggle_task_mark(callback: CallbackQuery, state: FSMContext):
     try:
-        task_index = int(callback.data.split('_')[1])
+        task_index = int(callback.data.split(':')[1])
         data = await state.get_data()
-        tasks = data['tasks']
-        
-        if task_index >= len(tasks):
-            await callback.answer("Неверный номер пункта", show_alert=True)
-            return
-        
-        original_task = tasks[task_index]
+        plan: Plan = data.get('plan')
+        tasks: List[Task] = plan.tasks
+        task = tasks[task_index]
 
-        if '✅' in original_task:
-            new_task = original_task.replace('✅', '').strip()
-        else:
-            new_task = f"✅ {original_task.replace('✅', '').strip()}"
-        
-        if new_task == original_task:
-            await callback.answer()
+        if not task:
+            await callback.answer("Ошибка при обработки задачи 😔", show_alert=True)
             return
-            
-        tasks[task_index] = new_task
-        await state.update_data({'tasks': tasks})
+        
+        tasks[task_index].checked = not tasks[task_index].checked
+        plan.tasks = tasks
+        await state.update_data(plan=plan)
 
         try:
             await callback.message.edit_reply_markup(reply_markup=task_marking_keyboard(tasks))
-            await callback.answer(f"Пункт {task_index+1} обновлен")
+            await callback.answer()
         except:
             await callback.answer()
             
@@ -233,44 +231,21 @@ async def handle_plan_action(callback: CallbackQuery, state: FSMContext):
     current_state = await state.get_state()
     _, plan_type, plan_id = callback.data.split(':')
     
-    if plan_type == 'base':
-        plans = get_base_plans()
-    else:
-        plans = get_user_plans(callback.from_user.id)
-    
-    selected_plan = next((p for p in plans if str(p.id) == plan_id), None)
-    if not selected_plan:
+    plan = get_plan_by_type_user_id_plan_id(plan_type, plan_id=plan_id, user_id=callback.from_user.id)
+
+    if not plan:
         await callback.answer("План не найден!")
         return
     
     if current_state == 'UserState:selecting_existing_plan':
-        current_date = datetime.now().strftime("%d.%m.%Y")
-        plan_header = f"📅 {current_date}\n📋 {selected_plan.name}\n\n"
-        
-        tasks = [task.body for task in selected_plan.tasks]
-        
-        await state.update_data(
-            is_new_plan=False,
-            selected_plan_id=selected_plan.id,
-            tasks=tasks,
-            plan_name=selected_plan.name,
-            header=selected_plan.name,
-            current_date=current_date
-        )
-        
-        plan_text = plan_header + "\n".join(task for task in tasks)
-        await callback.message.edit_text(plan_text, reply_markup=plan_edit_keyboard())
+        await state.update_data(plan=plan)
+        await callback.message.edit_text(get_full_plan(plan), reply_markup=plan_edit_keyboard())
     else:
-        current_date = datetime.now().strftime("%d.%m.%Y")
-        
         await callback.message.edit_text(
-            f"📅 {current_date}\n"
-            f"✅ План <b>{selected_plan.name}</b>\n\n"
-            f"Содержание:\n{get_plan_body(selected_plan)}",
+            get_full_plan(plan),
             parse_mode='HTML',
-            reply_markup=plan_actions_keyboard(selected_plan.name, plan_type, str(selected_plan.id))
+            reply_markup=plan_actions_keyboard(plan.name, plan_type, str(plan.id))
         )
-    
     await callback.answer()
 
 @router.callback_query(UserState.selecting_existing_plan, F.data.startswith('select_user_'))
@@ -287,6 +262,8 @@ async def handle_existing_plan_choice(callback: CallbackQuery, state: FSMContext
         )
     elif callback.data == "select_user_plans":
         plans = get_user_plans(callback.from_user.id)
+        logger.info(len(plans))
+
         if not plans:
             await callback.message.edit_text("У вас пока нет сохраненных планов.")
             return
@@ -330,7 +307,7 @@ async def process_new_day_plan_tasks(message: Message, state: FSMContext):
     await state.set_state(UserState.editing_plan)
 
 @router.callback_query(F.data == 'current_plan')
-async def show_current_plan(callback: CallbackQuery):
+async def show_current_plan(callback: CallbackQuery, state: FSMContext):
     user_id = callback.from_user.id
     plan = get_current_plan(user_id)
     
@@ -338,10 +315,12 @@ async def show_current_plan(callback: CallbackQuery):
         await callback.message.edit_text("У вас нет активного плана.", reply_markup=back_keyboard())
         await callback.answer()
         return
-
+    
+    await state.update_data(plan=plan)
     await callback.message.edit_text(
-        f"📋 Текущий план: {plan.name}\n\n{get_plan_body(plan)}",
-        reply_markup=current_plan_keyboard()
+        get_full_current_plan(plan),
+        reply_markup=current_plan_keyboard(),
+        parse_mode='HTML'
     )
     await callback.answer()
 
@@ -426,9 +405,7 @@ async def select_plan(callback: types.CallbackQuery):
 
 @router.callback_query(F.data.startswith("use_plan:"))
 async def use_plan(callback: types.CallbackQuery):
-    logger.info(callback.data)
     _, plan_type, plan_id = callback.data.split(':')
-    logger.info('plan_type ' + plan_type + "plan_id" + plan_id)
     
     if plan_type == "base":
         plans = get_base_plans()
@@ -447,7 +424,8 @@ async def use_plan(callback: types.CallbackQuery):
     await callback.message.edit_text(
         f"✅ План <b>{selected_plan.name}</b> теперь ваш текущий план!\n\n"
         f"Содержание:\n{plan_text}",
-        parse_mode='HTML'
+        parse_mode='HTML',
+        reply_markup=main_menu_keyboard()
     )
     await callback.answer()
 
@@ -499,7 +477,7 @@ async def handle_plan_type_choice(callback: CallbackQuery, state: FSMContext):
         data.update(plan=plan)
         await state.set_data(data)
         
-        await callback.message.edit_text(get_full_plan(plan), reply_markup=plan_edit_keyboard())
+        await callback.message.edit_text(get_full_plan(plan), reply_markup=plan_edit_keyboard(), parse_mode='HTML')
         await state.set_state(UserState.editing_plan)
     elif callback.data == "cancel_plan_creation":
         await handle_cancel_plan_creation(callback, state)
@@ -510,12 +488,12 @@ async def handle_plan_type_choice(callback: CallbackQuery, state: FSMContext):
 async def start_task_editing(callback: CallbackQuery, state: FSMContext):
     data = await state.get_data()
     plan: Plan = data.get('plan')
-    
+    logger.info(plan)
     await state.update_data(
             message_id = callback.message.message_id,
             chat_id = callback.message.chat.id
         )
-    await callback.message.edit_text(get_full_plan(plan), reply_markup=task_edit_keyboard(plan.tasks))
+    await callback.message.edit_text(get_full_plan(plan), reply_markup=task_edit_keyboard(plan.tasks), parse_mode='HTML')
     await state.set_state(UserState.editing_plan)
     await callback.answer()
 
@@ -535,12 +513,10 @@ async def start_marking_tasks(callback: CallbackQuery, state: FSMContext):
     try:
         data = await state.get_data()
         plan: Plan = data.get('plan')
-        
-        keyboard = task_marking_keyboard(plan.tasks)
-        
+
         await callback.message.edit_text(
             "Выберите пункты для отметки:\n(✓ - отмеченные)",
-            reply_markup=keyboard
+            reply_markup=task_marking_keyboard(plan.tasks)
         )
         await state.set_state(PlanManagement.marking_tasks)
     except Exception as e:
@@ -573,7 +549,8 @@ async def back_to_management(callback: CallbackQuery, state: FSMContext):
         
         await callback.message.edit_text(
             get_full_plan(plan),
-            reply_markup=management_keyboard()
+            reply_markup=management_keyboard(),
+            parse_mode='HTML'
         )
         await state.set_state(PlanManagement.managing_plan)
     except Exception as e:
@@ -631,7 +608,8 @@ async def process_comment(message: Message, state: FSMContext):
             chat_id=data['chat_id'],
             message_id=data['message_id'],
             text=get_full_plan(plan),
-            reply_markup=management_keyboard()
+            reply_markup=management_keyboard(),
+            parse_mode='HTML'
         )
         
         await state.set_state(PlanManagement.managing_plan)
@@ -645,10 +623,8 @@ async def process_comment(message: Message, state: FSMContext):
 async def start_editing_plan(callback: CallbackQuery, state: FSMContext):
     try:
         data = await state.get_data()
-        plan = data.get('plan', {})
-        tasks = data.get('tasks')
-
-        logger.info('data:' + str(data))
+        plan: Plan = data.get('plan', {})
+        tasks = plan.tasks
 
         await callback.message.edit_text(
             "Выберите пункт для редактирования:",
@@ -702,7 +678,8 @@ async def process_task_edit(message: Message, state: FSMContext):
         
         await message.answer(
             text=get_full_plan(plan),
-            reply_markup=plan_edit_keyboard()
+            reply_markup=plan_edit_keyboard(),
+            parse_mode='HTML'
         )
         
         await message.answer("Пункт успешно обновлен!")
@@ -802,34 +779,25 @@ async def save_current_plan(callback: CallbackQuery, state: FSMContext):
 @router.callback_query(F.data == "finish_day")
 async def finish_day(callback: CallbackQuery, state: FSMContext):
     data = await state.get_data()
-    tasks = data.get('tasks', [])
-    group_id = data.get('group_id')
-    completed_tasks = sum(1 for task in tasks if '✅' in task)
+    plan: Plan = data.get('plan')
+    tasks: List[Task] = plan.tasks
 
-    save_completed_tasks(
-        user_id=callback.from_user.id,
-        group_id=None,
-        completed_tasks=completed_tasks
-    )
+    completed_tasks_count = sum(1 for task in tasks if task.checked)
+
+    statistic: Statistic = create_statistic(callback.from_user.id, plan_id=plan.id, total_tasks=len(plan.tasks), completed_tasks=completed_tasks_count, study_hours=0)
     
-    if group_id:
-        save_completed_tasks(
-            user_id=callback.from_user.id,
-            group_id=group_id,
-            completed_tasks=completed_tasks
-        )
-    
-    await state.update_data(completed_tasks=completed_tasks)
     await callback.message.edit_text(
         "📚 Сколько часов вы сегодня учились?\n\n"
         "Введите количество часов (например: 2.5)"
     )
     await state.set_state(PlanManagement.waiting_for_study_time)
+    await state.update_data(statistic=statistic)
     await callback.answer()
 
 @router.message(PlanManagement.waiting_for_study_time)
 async def process_study_time(message: Message, state: FSMContext, bot: Bot):
     try:
+        logger.info(message.text)
         study_hours = float(message.text.replace(',', '.'))
         if study_hours < 0:
             await message.answer("❌ Время не может быть отрицательным. Введите корректное значение:")
@@ -839,36 +807,37 @@ async def process_study_time(message: Message, state: FSMContext, bot: Bot):
             return
             
         data = await state.get_data()
+        statistic: Statistic = data.get('statistic')
         completed_tasks = data.get('completed_tasks', 0)
         group_id = data.get('group_id')
-        
-        save_study_time(
-            user_id=message.from_user.id,
-            group_id=None,
-            study_hours=study_hours
+
+        update_statistic(statistic_id=statistic.id, study_hours=study_hours)
+        await bot.send_message(
+            chat_id=group_id,
+            text=f"🌙 {message.from_user.mention_html()} завершил день!\n"
+                    f"✅ Выполнено задач: {completed_tasks}\n"
+                    f"📚 Время обучения: {study_hours:.1f} ч.",
+            parse_mode="HTML"
         )
-        
-        if group_id:
-            save_study_time(
-                user_id=message.from_user.id,
-                group_id=group_id,
-                study_hours=study_hours
-            )
-            await bot.send_message(
-                chat_id=group_id,
-                text=f"🌙 {message.from_user.mention_html()} завершил день!\n"
-                     f"✅ Выполнено задач: {completed_tasks}\n"
-                     f"📚 Время обучения: {study_hours:.1f} ч.",
-                parse_mode="HTML"
-            )
-        else:
-            await message.answer(
-                f"🌙 День завершён!\n\n"
-                f"✅ Выполнено задач: {completed_tasks}\n"
-                f"📚 Время обучения: {study_hours:.1f} ч."
-            )
         
         await state.clear()
         
-    except ValueError:
-        await message.answer("❌ Пожалуйста, введите корректное число часов:")
+    except ValueError as e:
+        await message.answer("❌ Пожалуйста, введите корректное число часов:" + e)
+
+@router.callback_query(F.data.startswith('delete_plan:'))
+async def handle_delete_plan(callback: CallbackQuery):
+    _, plan_type, plan_id = callback.data.split(':')
+    
+    if plan_type != 'user':
+        await callback.answer("Можно удалять только пользовательские планы")
+        return
+    
+    if delete_user_plan(callback.from_user.id, plan_id):
+        plans = get_user_plans(callback.from_user.id)
+        await callback.message.edit_text(
+            "✅ План успешно удален",
+            reply_markup=user_plans_keyboard(plans)
+        )
+    else:
+        await callback.answer("Ошибка при удалении плана", show_alert=True)

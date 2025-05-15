@@ -4,7 +4,7 @@ from aiogram import Router, F, types, Bot
 from aiogram.filters import Command
 from aiogram.fsm.context import FSMContext
 from aiogram.types import Message, CallbackQuery
-from database.plan import add_comment_to_task, create_user_plan, delete_user_plan, get_base_plans, get_current_plan, get_user_plans, publish_user_plan, set_current_plan
+from database.plan import add_comment_to_task, create_user_plan, delete_user_plan, get_base_plans, get_current_plan, get_user_plans, publish_user_plan, reset_plan, set_current_plan
 from database.statistics import create_statistic, update_statistic
 from database.user import get_user_by_telegram_id
 from keyboards.inline import back_keyboard, current_plan_keyboard, existing_plans_keyboard, main_menu_keyboard, management_keyboard, new_day_keyboard, plan_actions_keyboard, plan_confirmation_keyboard, plan_edit_keyboard, plan_editor_keyboard, plan_management_keyboard, plan_tasks_edit_keyboard, plans_keyboard, task_comments_keyboard, task_edit_keyboard, task_marking_keyboard, base_plans_keyboard, task_position_keyboard, user_plans_keyboard, select_plan_keyboard
@@ -785,7 +785,8 @@ async def finish_day(callback: CallbackQuery, state: FSMContext):
     completed_tasks_count = sum(1 for task in tasks if task.checked)
 
     statistic: Statistic = create_statistic(callback.from_user.id, plan_id=plan.id, total_tasks=len(plan.tasks), completed_tasks=completed_tasks_count, study_hours=0)
-    
+    reset_plan(plan.id)
+
     await callback.message.edit_text(
         "📚 Сколько часов вы сегодня учились?\n\n"
         "Введите количество часов (например: 2.5)"
@@ -808,14 +809,12 @@ async def process_study_time(message: Message, state: FSMContext, bot: Bot):
             
         data = await state.get_data()
         statistic: Statistic = data.get('statistic')
-        completed_tasks = data.get('completed_tasks', 0)
-        group_id = data.get('group_id')
-
         update_statistic(statistic_id=statistic.id, study_hours=study_hours)
+
         await bot.send_message(
-            chat_id=group_id,
+            chat_id=data.get('group_id'),
             text=f"🌙 {message.from_user.mention_html()} завершил день!\n"
-                    f"✅ Выполнено задач: {completed_tasks}\n"
+                    f"✅ Выполнено задач: {str(statistic.completed_tasks)}\n"
                     f"📚 Время обучения: {study_hours:.1f} ч.",
             parse_mode="HTML"
         )
@@ -823,7 +822,8 @@ async def process_study_time(message: Message, state: FSMContext, bot: Bot):
         await state.clear()
         
     except ValueError as e:
-        await message.answer("❌ Пожалуйста, введите корректное число часов:" + e)
+        logger.error(str(e))
+        await message.answer("❌ Пожалуйста, введите корректное число часов:" )
 
 @router.callback_query(F.data.startswith('delete_plan:'))
 async def handle_delete_plan(callback: CallbackQuery):

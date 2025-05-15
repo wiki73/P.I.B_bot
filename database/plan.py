@@ -227,3 +227,23 @@ def delete_user_plan(telegram_id: int, plan_id: str) -> bool:
         logger.error(f"Error deleting plan: {e}")
         db.session.rollback()
         return False
+    
+def reset_plan(plan_id: str) -> bool:
+    try:
+        with db.transaction():
+            db.session.query(Task)\
+                .filter(Task.plan_id == plan_id)\
+                .update({Task.checked: False}, synchronize_session=False)
+            
+            db.session.query(Comment)\
+                .filter(Comment.task_id.in_(
+                    db.session.query(Task.id).filter(Task.plan_id == plan_id)
+                )).delete(synchronize_session=False)
+            
+            db.session.commit()
+            return True
+            
+    except Exception as e:
+        logger.error(f"Error resetting plan {plan_id}: {e}")
+        db.session.rollback()
+        return False

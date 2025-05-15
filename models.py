@@ -1,11 +1,9 @@
-from datetime import datetime
 import uuid
 from sqlalchemy import create_engine, Column, Integer, String, Text, Boolean, DateTime, ForeignKey, Float, Table
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.ext.declarative import declarative_base
 from sqlalchemy.orm import relationship, sessionmaker
 from sqlalchemy.sql import func
-
 Base = declarative_base()
 
 user_plans = Table(
@@ -24,11 +22,13 @@ class User(Base):
     telegram_id = Column(Integer, unique=True, nullable=False)
     name = Column(String, nullable=False)
     current_plan_id = Column(UUID(as_uuid=True), ForeignKey('plans.id'), nullable=True)
+    published_plan_id = Column(UUID(as_uuid=True), ForeignKey('plans.id'), nullable=True)
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
     
     plans = relationship("Plan", secondary=user_plans, back_populates="users")
     current_plan = relationship("Plan", foreign_keys=[current_plan_id])
+    published_plan = relationship("Plan", foreign_keys=[published_plan_id])
     statistics = relationship("Statistic", back_populates="user")
     comments = relationship("Comment", back_populates="author")
 
@@ -91,6 +91,7 @@ engine = create_engine(DATABASE_URL)
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
 
 def init_db():
+    # Base.metadata.drop_all(bind=engine)
     Base.metadata.create_all(bind=engine)
 
 def get_db():

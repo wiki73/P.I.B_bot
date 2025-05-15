@@ -1,12 +1,12 @@
 from datetime import datetime
-from typing import List
+from typing import List, Literal
 from aiogram import Router, F, types, Bot
 from aiogram.filters import Command
 from aiogram.fsm.context import FSMContext
 from aiogram.types import Message, CallbackQuery
-from database.plan import create_user_plan, get_base_plans, get_current_plan, get_user_plans, set_current_plan
+from database.plan import add_comment_to_task, create_user_plan, get_base_plans, get_current_plan, get_user_plans, publish_user_plan, set_current_plan
 from keyboards.inline import back_keyboard, current_plan_keyboard, existing_plans_keyboard, main_menu_keyboard, management_keyboard, new_day_keyboard, plan_actions_keyboard, plan_confirmation_keyboard, plan_edit_keyboard, plan_editor_keyboard, plan_management_keyboard, plan_tasks_edit_keyboard, plans_keyboard, task_comments_keyboard, task_edit_keyboard, task_marking_keyboard, base_plans_keyboard, task_position_keyboard, user_plans_keyboard, select_plan_keyboard
-from models import Plan, Task
+from models import Comment, Plan, Task
 from states.plans import PlanCreation, PlanManagement, PlanView
 from states.user import UserState
 from utils import get_full_plan, get_plan_body, send_message_with_keyboard, logger, show_existing_plans, show_management_menu
@@ -105,6 +105,8 @@ async def select_task_position(callback: CallbackQuery, state: FSMContext):
 async def finish_plan_editing(callback: CallbackQuery, state: FSMContext):
     data = await state.get_data()
     plan = data.get('plan')
+    
+
 
     await callback.message.edit_text(
         get_full_plan(plan) + "\n\nХотите опубликовать этот план в группу?",
@@ -116,29 +118,13 @@ async def finish_plan_editing(callback: CallbackQuery, state: FSMContext):
 
 @router.callback_query(UserState.publishing_plan, F.data == "publish_plan")
 async def publish_plan(callback: CallbackQuery, state: FSMContext, bot: Bot):
-    logger.info('PUBLISH_PLAN')
-
-    data = await state.get_data()
-    plan_name = data.get('plan_name')
-    tasks = data.get('tasks')
-    
-
-    logger.info('data: ' + str(data))
-    await state.update_data(plan = {
-        'name': plan_name,
-        'tasks': tasks,
-        'owner_id': callback.from_user.id,
-        'owner_mention': callback.from_user.mention_html(),
-    })
-    current_date = datetime.now().strftime("%d.%m.%Y")
-    tasks_text = "\n".join(task for task in tasks)
-    formatted_plan = f"""
-📅 {current_date}
-📋 {plan_name}
-
-{tasks_text}"""
-    text = f"🌅 <strong>{callback.from_user.mention_html()} опубликовал свой план на сегодня:</strong>\n{formatted_plan}"
     user_id = callback.from_user.id
+    data = await state.get_data()
+    plan: Plan = data.get('plan')
+
+    publish_user_plan(user_id, plan.id)
+    
+    text = f"🌅 <strong>{callback.from_user.mention_html()} опубликовал свой план на сегодня:</strong>\n{get_full_plan(plan)}"
 
     await bot.send_message(
         chat_id=data.get('group_id'),
@@ -146,25 +132,20 @@ async def publish_plan(callback: CallbackQuery, state: FSMContext, bot: Bot):
         parse_mode="HTML",
         reply_markup=plan_management_keyboard(user_id)
     )
+    await state.update_data(plan=plan)
     await callback.answer()
 
 
 @router.callback_query(F.data.startswith("manage_plan:"))
 async def manage_plan_handler(callback: CallbackQuery, state: FSMContext):
     try:
-        plan_text = callback.message.text
-        lines = plan_text.split('\n')
-        
-        header = "\n".join(lines[:2])
-        tasks = [line.strip() for line in lines[2:] if line.strip()]
-        
-        await state.update_data({
-            'is_new_task': False,
-            'header': header,
-            'tasks': tasks,
-            'message_id': callback.message.message_id,
-            'chat_id': callback.message.chat.id
-        })
+        user_id = callback.data.split(":")[1]
+        plan = get_current_plan(user_id)
+        await state.update_data(
+            plan = plan,
+            message_id = callback.message.message_id,
+            chat_id =  callback.message.chat.id
+        )
         
         await show_management_menu(callback.message)
         await state.set_state(PlanManagement.managing_plan)
@@ -345,7 +326,7 @@ async def process_new_day_plan_tasks(message: Message, state: FSMContext):
     )
     
     plan_text = f"📅 {current_date}\n📋 {plan_name}\n\n" + "\n".join(task for task in tasks)
-    await send_message_with_keyboard(message, plan_text, reply_markup=plan_edit_keyboard())
+    await send_message_with_keyboard(message, plan_text, reply_markup=plan_edit_keyboard('chat'))
     await state.set_state(UserState.editing_plan)
 
 @router.callback_query(F.data == 'current_plan')
@@ -503,8 +484,6 @@ async def handle_plan_type_choice(callback: CallbackQuery, state: FSMContext):
         await show_existing_plans(callback)
         await state.set_state(UserState.selecting_existing_plan)
     elif callback.data == "create_new_plan":
-        current_date = datetime.now().strftime("%d.%m.%Y")
-        data['current_date'] = current_date
         await state.set_data(data)
         await callback.message.edit_text("📝 Введите название для нового плана на сегодня:")
         await state.set_state(UserState.creating_new_plan)
@@ -517,23 +496,10 @@ async def handle_plan_type_choice(callback: CallbackQuery, state: FSMContext):
             await callback.answer()
             return
         
-        plan_body = get_plan_body(plan)
-        
-        current_date = datetime.now().strftime("%d.%m.%Y")
-        plan_header = f"📅 {current_date}\n📋 {plan.name}\n\n"
-        
-        tasks = plan_body.split('\n')
-        
-        data.update({
-            'tasks': tasks,
-            'plan_name': plan.name,
-            'current_date': current_date
-        })
+        data.update(plan=plan)
         await state.set_data(data)
         
-        plan_body = plan_header + "\n".join(task for task in tasks)
-
-        await callback.message.edit_text(plan_body, reply_markup=plan_edit_keyboard())
+        await callback.message.edit_text(get_full_plan(plan), reply_markup=plan_edit_keyboard())
         await state.set_state(UserState.editing_plan)
     elif callback.data == "cancel_plan_creation":
         await handle_cancel_plan_creation(callback, state)
@@ -543,30 +509,24 @@ async def handle_plan_type_choice(callback: CallbackQuery, state: FSMContext):
 @router.callback_query(F.data == "edit_tasks")
 async def start_task_editing(callback: CallbackQuery, state: FSMContext):
     data = await state.get_data()
-    tasks = data.get('tasks', [])
-    current_date = data.get('current_date')
-    plan_name = data.get('plan_name')
-    plan_text = f"📅 {current_date}\n📋 {plan_name}\n\n"
-    plan_text += "Текущие задачи:\n" + "\n".join(task for task in tasks)
-    plan_text += "\n\nВыберите действие:"
+    plan: Plan = data.get('plan')
     
-    await state.update_data({
-            'tasks': tasks,
-            'message_id': callback.message.message_id,
-            'chat_id': callback.message.chat.id
-        })
-    await callback.message.edit_text(plan_text, reply_markup=task_edit_keyboard(tasks))
+    await state.update_data(
+            message_id = callback.message.message_id,
+            chat_id = callback.message.chat.id
+        )
+    await callback.message.edit_text(get_full_plan(plan), reply_markup=task_edit_keyboard(plan.tasks))
     await state.set_state(UserState.editing_plan)
     await callback.answer()
 
 @router.callback_query(F.data == "add_new_task")
 async def add_new_task(callback: CallbackQuery, state: FSMContext):
     data = await state.get_data()
-    tasks = data.get('tasks', [])
+    plan: Plan = data.get('plan')
     
     await callback.message.edit_text(
         "Выберите, куда добавить новый пункт:",
-        reply_markup=task_position_keyboard(tasks)
+        reply_markup=task_position_keyboard(plan.tasks)
     )
     await callback.answer()
 
@@ -574,9 +534,9 @@ async def add_new_task(callback: CallbackQuery, state: FSMContext):
 async def start_marking_tasks(callback: CallbackQuery, state: FSMContext):
     try:
         data = await state.get_data()
-        tasks = data['tasks']
+        plan: Plan = data.get('plan')
         
-        keyboard = task_marking_keyboard(tasks)
+        keyboard = task_marking_keyboard(plan.tasks)
         
         await callback.message.edit_text(
             "Выберите пункты для отметки:\n(✓ - отмеченные)",
@@ -593,11 +553,11 @@ async def start_marking_tasks(callback: CallbackQuery, state: FSMContext):
 async def task_comments_handler(callback: CallbackQuery, state: FSMContext):
     try:
         data = await state.get_data()
-        tasks = data['tasks']
+        plan: Plan = data.get('plan')
         
         await callback.message.edit_text(
             "Выберите пункт для добавления комментария:",
-            reply_markup=task_comments_keyboard(tasks)
+            reply_markup=task_comments_keyboard(plan.tasks)
         )
     except Exception as e:
         logger.error(f"Ошибка в task_comments_handler: {e}")
@@ -607,15 +567,12 @@ async def task_comments_handler(callback: CallbackQuery, state: FSMContext):
 
 @router.callback_query(F.data == "back_to_manage")
 async def back_to_management(callback: CallbackQuery, state: FSMContext):
-    logger.info('BACK_TO_MANAGEMENT')
     try:
         data = await state.get_data()
-        header = data['header']
-        tasks = data['tasks']
+        plan: Plan = data.get('plan')
         
-        full_plan = f"{header}\n" + "\n".join(tasks)
         await callback.message.edit_text(
-            full_plan,
+            get_full_plan(plan),
             reply_markup=management_keyboard()
         )
         await state.set_state(PlanManagement.managing_plan)
@@ -654,32 +611,26 @@ async def select_task_for_comment(callback: CallbackQuery, state: FSMContext):
 
 @router.message(PlanManagement.adding_comment, F.text)
 async def process_comment(message: Message, state: FSMContext):
-    logger.info('PROCESS_COMMENT')
     try:
         if message.text.startswith('/'):
             await message.answer("Действие отменено")
             await show_management_menu(message)
             await state.set_state(PlanManagement.managing_plan)
             return
-            
+        comment_text = message.text
         data = await state.get_data()
-        task_index = data['commenting_task']
-        tasks = data['tasks']
-        task = tasks[task_index]
+        plan: Plan = data.get('plan')
+        tasks: List[Task] = plan.tasks
+        task_index: int = data['commenting_task']
+        comment = add_comment_to_task(tasks[task_index].id, message.from_user.id, comment_text)
+        tasks[task_index].comments.append(comment)
+        plan.tasks = tasks
 
-        if '💬' in task:
-            task = task.split('💬')[0].strip()
-        
-        tasks[task_index] = f"{task} 💬{message.text}"
         await state.update_data(tasks = tasks)
-        
-        header = data['header']
-        full_plan = f"{header}\n" + "\n".join(tasks)
-        
         await message.bot.edit_message_text(
             chat_id=data['chat_id'],
             message_id=data['message_id'],
-            text=full_plan,
+            text=get_full_plan(plan),
             reply_markup=management_keyboard()
         )
         
@@ -715,21 +666,19 @@ async def select_task_to_edit(callback: CallbackQuery, state: FSMContext):
     try:
         task_index = int(callback.data.split('_')[2])
         data = await state.get_data()
-        tasks = data['tasks']
+        plan: Plan = data.get('plan')
+        tasks: List[Task] = plan.tasks
         
-        task_text = tasks[task_index]
-        if '💬' in task_text:
-            task_text = task_text.split('💬')[0].strip()
-        task_text = task_text.replace('✅', '').strip()
+        task = tasks[task_index]
         
         await state.update_data({
             'editing_task_index': task_index,
-            'original_task_text': task_text
+            'original_task_text': task.body
         })
         
         await callback.message.edit_text(
             f"Редактирование пункта {task_index+1}:\n\n"
-            f"Текущий текст: {task_text}\n\n"
+            f"Текущий текст: {task.body}\n\n"
             "Введите новый текст для этого пункта:"
         )
         await state.set_state(PlanManagement.editing_task)

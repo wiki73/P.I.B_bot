@@ -1,5 +1,5 @@
 from typing import List
-from models import Plan, User, Task
+from models import Comment, Plan, User, Task, user_plans
 from database.database import db
 import logging
 
@@ -94,3 +94,94 @@ def delete_task(task_id: str) -> bool:
             return False
         db.session.delete(task)
         return True  
+
+def add_comment_to_task(
+    task_id: str,
+    author_telegram_id: int,
+    comment_text: str
+) -> Comment:
+    try:
+        with db.transaction():
+            task = db.session.query(Task).filter(Task.id == task_id).first()
+            if not task:
+                raise ValueError("Task not found")
+            
+            user = db.session.query(User).filter(User.telegram_id == author_telegram_id).first()
+            if not user:
+                raise ValueError("User not found")
+            
+            comment = Comment(
+                task_id=task_id,
+                author_id=user.id,
+                body=comment_text
+            )
+            
+            db.session.add(comment)
+            db.session.flush()
+            db.session.refresh(comment)
+            
+            return comment
+            
+    except Exception as e:
+        logger.error(f"Error adding comment: {e}")
+        db.session.rollback()
+        raise
+
+def publish_user_plan(telegram_id: int, plan_id: str) -> bool:
+    try:
+        with db.transaction():
+            user = db.session.query(User).filter(User.telegram_id == telegram_id).first()
+            if not user:
+                logger.error(f"User with telegram_id {telegram_id} not found")
+                return False
+            
+            plan = db.session.query(Plan)\
+                .join(user_plans, Plan.id == user_plans.c.plan_id)\
+                .filter(Plan.id == plan_id)\
+                .filter(user_plans.c.user_id == user.id)\
+                .first()
+            
+            if not plan:
+                logger.error(f"Plan {plan_id} not found or doesn't belong to user {telegram_id}")
+                return False
+            
+            user.published_plan = plan
+            db.session.commit()
+            return True
+            
+    except Exception as e:
+        logger.error(f"Error publishing plan: {e}")
+        db.session.rollback()
+        return False
+    
+
+def get_published_plan(telegram_id: int) -> Plan | None:
+    try:
+        user = db.session.query(User).filter(User.telegram_id == telegram_id).first()
+        return user.published_plan if user else None
+    except Exception as e:
+        logger.error(f"Error getting published plan: {e}")
+        return None
+
+def unpublish_user_plan(telegram_id: int) -> bool:
+    try:
+        with db.transaction():
+            user = db.session.query(User).filter(User.telegram_id == telegram_id).first()
+            if not user or not user.published_plan_id:
+                return False
+            
+            user.published_plan = None
+            return True
+    except Exception as e:
+        logger.error(f"Error unpublishing plan: {e}")
+        db.session.rollback()
+        return False
+
+def get_user_published_plans() -> List[tuple[User, Plan]]:
+    try:
+        return db.session.query(User, Plan)\
+            .join(Plan, User.published_plan_id == Plan.id)\
+            .all()
+    except Exception as e:
+        logger.error(f"Error getting published plans: {e}")
+        return []

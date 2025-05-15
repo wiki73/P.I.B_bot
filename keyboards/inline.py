@@ -1,7 +1,8 @@
+from asyncio.log import logger
 from typing import Dict, List, Literal
 from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton
 from aiogram.utils.keyboard import InlineKeyboardBuilder
-from models import Plan
+from models import Plan, Task
 
 def back_button(callback_data = "back_to_main"):
     return InlineKeyboardButton(text="◀️ Назад", callback_data=callback_data)
@@ -80,7 +81,7 @@ def plan_creation_options_keyboard(plan_name: str | None = None) -> InlineKeyboa
 def plan_edit_keyboard() -> InlineKeyboardMarkup:
     buttons = [
         [InlineKeyboardButton(text="✏️ Редактировать задачи", callback_data="edit_tasks")],
-        [InlineKeyboardButton(text="✅ Завершить", callback_data="finish_plan")],
+        [InlineKeyboardButton(text="✅ Завершить", callback_data=f"finish_plan")],
         [InlineKeyboardButton(text="❌ Отмена", callback_data="cancel_plan_creation")]
     ]
 
@@ -138,13 +139,12 @@ def task_marking_keyboard(tasks: List[Dict]) -> InlineKeyboardMarkup:
     
     return keyboard.as_markup()
 
-def task_comments_keyboard(tasks: List[Dict]) -> InlineKeyboardMarkup:
+def task_comments_keyboard(tasks: List[Task]) -> InlineKeyboardMarkup:
     keyboard = InlineKeyboardBuilder()
 
     for i, task in enumerate(tasks):
-        clean_task = task.replace('✅', '').strip()
         keyboard.add(InlineKeyboardButton(
-            text=f"{i+1}. {clean_task[:20]}...",
+            text=f"{i+1}. {task.body[:20]}...",
             callback_data=f"comment_task_{i}"
         ))
     

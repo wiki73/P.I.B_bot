@@ -1,4 +1,5 @@
 from datetime import datetime
+from typing import List
 from aiogram.types import  Message, InlineKeyboardMarkup, CallbackQuery
 from aiogram.fsm.context import FSMContext
 from database.plan import get_current_plan
@@ -6,7 +7,7 @@ from keyboards import group_keyboard, personal_keyboard, plan_creation_options_k
 import logging
 
 from keyboards.inline import existing_plans_keyboard, main_menu_keyboard, management_keyboard
-from models import Plan
+from models import Comment, Plan
 from states.user import UserState
 
 logging.basicConfig(level=logging.INFO)
@@ -49,9 +50,12 @@ async def show_existing_plans(callback: CallbackQuery):
 async def show_management_menu(message: Message):
     await message.edit_reply_markup(reply_markup=management_keyboard())
 
+def get_plan_comments(comments: List[Comment]) -> str:
+    return "💬 ".join(comment.body for comment in comments)
+
 def get_plan_body(plan: Plan) -> str:
     logger.info(str(plan))
-    return "\n".join(task.body for task in plan.tasks)
+    return "\n".join(f"{task.body} {get_plan_comments(task.comments)}" for task in plan.tasks)
     
 
 def get_full_plan(plan: Plan) -> str:

@@ -1,4 +1,4 @@
-version: "3.8"
+version: "3.3"
 
 services:
   bot:
@@ -17,10 +17,17 @@ services:
       - db
 
   db:
-    image: alpine:latest
-    container_name: sqlite_db
+    image: postgres:15
+    container_name: db
     volumes:
-      - ./data:/data
-    command: >
-      sh -c "mkdir -p /data && chmod 777 /data && tail -f /dev/null"
+      - postgres_data:/var/lib/postgresql/data
     restart: unless-stopped
+    environment:
+      POSTGRES_DB: plans_db
+      POSTGRES_USER: plans_user
+      POSTGRES_PASSWORD: plans_password
+    ports:
+      - "5432:5432"
+
+volumes:
+  postgres_data:

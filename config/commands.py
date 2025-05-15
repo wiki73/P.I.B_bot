@@ -6,6 +6,8 @@ BOT_COMMANDS = [
     BotCommand(command="info", description="О планировании"),
     BotCommand(command="create_plan", description="Создать новый план"),
     BotCommand(command="view_plans", description="Посмотреть планы"),
+    BotCommand(command="new_day", description="Начать новый день"),
+    BotCommand(command="statistics", description="Посмотреть статистику"),
 ]
 
 async def set_bot_commands(bot):

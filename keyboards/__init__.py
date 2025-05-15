@@ -1,4 +1,57 @@
-from .inline import cancel_plan_creation_keyboard, main_menu_keyboard, help_keyboard, plans_keyboard, create_plan_keyboard, new_day_keyboard, back_keyboard, management_keyboard, plan_creation_options_keyboard, plan_edit_keyboard, plan_actions_keyboard, task_edit_keyboard, task_position_keyboard, task_marking_keyboard, task_comments_keyboard, current_plan_keyboard, plan_editor_keyboard, plan_confirmation_keyboard, existing_plans_keyboard
-from .reply import personal_keyboard, group_keyboard
+from .inline import (
+    main_menu_keyboard,
+    management_keyboard,
+    existing_plans_keyboard,
+    plan_creation_options_keyboard,
+    base_plans_keyboard,
+    back_keyboard,
+    cancel_plan_creation_keyboard,
+    help_keyboard,
+    plans_keyboard,
+    create_plan_keyboard,
+    new_day_keyboard,
+    plan_edit_keyboard,
+    plan_actions_keyboard,
+    task_edit_keyboard,
+    task_position_keyboard,
+    task_marking_keyboard,
+    task_comments_keyboard,
+    current_plan_keyboard,
+    plan_editor_keyboard,
+    plan_confirmation_keyboard,
+    plan_management_keyboard,
+    plan_tasks_edit_keyboard,
+    user_plans_keyboard,
+    select_plan_keyboard
+)
 
-__all__ = ['cancel_plan_creation_keyboard', 'main_menu_keyboard', 'help_keyboard', 'plans_keyboard', 'create_plan_keyboard', 'new_day_keyboard', 'back_keyboard', 'personal_keyboard', 'management_keyboard', 'plan_creation_options_keyboard', 'plan_edit_keyboard', 'plan_actions_keyboard', 'task_edit_keyboard', 'task_position_keyboard', 'task_marking_keyboard', 'task_comments_keyboard', 'current_plan_keyboard', 'plan_editor_keyboard', 'group_keyboard', 'plan_confirmation_keyboard', 'existing_plans_keyboard'] 
+from .reply import group_keyboard, personal_keyboard
+
+__all__ = [
+    'main_menu_keyboard',
+    'management_keyboard',
+    'existing_plans_keyboard',
+    'plan_creation_options_keyboard',
+    'base_plans_keyboard',
+    'back_keyboard',
+    'cancel_plan_creation_keyboard',
+    'help_keyboard',
+    'plans_keyboard',
+    'create_plan_keyboard',
+    'new_day_keyboard',
+    'plan_edit_keyboard',
+    'plan_actions_keyboard',
+    'task_edit_keyboard',
+    'task_position_keyboard',
+    'task_marking_keyboard',
+    'task_comments_keyboard',
+    'current_plan_keyboard',
+    'plan_editor_keyboard',
+    'plan_confirmation_keyboard',
+    'plan_management_keyboard',
+    'plan_tasks_edit_keyboard',
+    'user_plans_keyboard',
+    'select_plan_keyboard',
+    'group_keyboard',
+    'personal_keyboard'
+] 

@@ -1,10 +1,13 @@
+from datetime import datetime
+from typing import List, Literal
 from aiogram.types import  Message, InlineKeyboardMarkup, CallbackQuery
 from aiogram.fsm.context import FSMContext
-from database import get_current_plan
+from database.plan import get_base_plans, get_current_plan, get_user_plans
 from keyboards import group_keyboard, personal_keyboard, plan_creation_options_keyboard
 import logging
 
 from keyboards.inline import existing_plans_keyboard, main_menu_keyboard, management_keyboard
+from models import Comment, Plan
 from states.user import UserState
 
 logging.basicConfig(level=logging.INFO)
@@ -34,11 +37,49 @@ async def show_plan_creation_options(message: Message, state: FSMContext):
     await state.set_state(UserState.choosing_plan_type)
 
 async def show_main_menu(message: Message):
-    await message.answer("Выберите действие:", reply_markup=main_menu_keyboard())
+    await send_message_with_keyboard(
+        message,
+        "Выберите действие:",
+        reply_markup=main_menu_keyboard()
+    )
 
-async def show_existing_plans(callback: CallbackQuery, state: FSMContext):
+async def show_existing_plans(callback: CallbackQuery):
     await callback.message.edit_text("Выберите тип существующего плана:", reply_markup=existing_plans_keyboard())
     await callback.answer()
 
 async def show_management_menu(message: Message):
     await message.edit_reply_markup(reply_markup=management_keyboard())
+
+def get_plan_comments(comments: List[Comment]) -> str:
+    return "\n    💬 ".join(comment.body for comment in comments)
+
+def get_plan_body(plan: Plan) -> str:
+    tasks = "\n".join(("✅" if task.checked else " " ) + task.body + get_plan_comments(task.comments) for task in plan.tasks)
+    return f"{tasks}"
+    
+
+def get_full_plan(plan: Plan) -> str:
+    current_date = datetime.now().strftime("%d.%m.%Y")
+
+    return f"""<b>📅{current_date}
+<i>📝{plan.name}</i></b>
+
+{get_plan_body(plan)}
+"""
+
+def get_full_current_plan(plan:Plan) -> str:
+    return f"<b>Текущий план</b>\n\n{get_full_plan(plan)}"
+
+def get_plan_published_message(plan: Plan, user_name: str) -> str:
+
+    return f"<b><u>{user_name}</u></b> опубликовал(а) свой план на сегодня! 🥳\n\n{get_full_plan(plan)}"
+
+
+def get_plan_by_type_user_id_plan_id(plan_type: Literal['base', 'user'], user_id: str | None, plan_id: str) -> Plan | None:
+
+    if plan_type == 'base':
+        plans = get_base_plans()
+    else:
+        plans = get_user_plans(user_id)
+    
+    return next((p for p in plans if str(p.id) == plan_id), None)

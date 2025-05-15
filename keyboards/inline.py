@@ -1,6 +1,7 @@
 from typing import Dict, List, Literal
 from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton
 from aiogram.utils.keyboard import InlineKeyboardBuilder
+from models import Plan
 
 def back_button(callback_data = "back_to_main"):
     return InlineKeyboardButton(text="◀️ Назад", callback_data=callback_data)
@@ -25,9 +26,9 @@ def help_keyboard() -> InlineKeyboardMarkup:
 
     return InlineKeyboardMarkup(inline_keyboard=buttons)
 
-def plans_keyboard(plans: List[Dict], type: Literal["base", "user"]) -> InlineKeyboardMarkup:
+def plans_keyboard(plans: List[Plan], type: Literal["base", "user"]) -> InlineKeyboardMarkup:
     buttons = [
-        [InlineKeyboardButton(text=plan['name'], callback_data=f"plan_action:{type}:{plan['id']}")]
+        [InlineKeyboardButton(text=plan.name, callback_data=f"plan_action:{type}:{plan.id}")]
         for plan in plans 
     ] + [[back_button()]]
 
@@ -88,7 +89,7 @@ def plan_edit_keyboard() -> InlineKeyboardMarkup:
 def plan_actions_keyboard(plan_name: str, plan_type: Literal["base", "user"], plan_id: str) -> InlineKeyboardMarkup:
     buttons = [
         [InlineKeyboardButton(text="📌 Сделать текущим", callback_data=f"use_plan:{plan_type}:{plan_id}")],
-        [InlineKeyboardButton(text="◀️ Назад", callback_data="back_to_plan_types")]
+        [back_button('view_base_plans')]
     ]
 
     if plan_type == 'user':
@@ -200,3 +201,82 @@ def plan_management_keyboard(user_id: int) -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(inline_keyboard=buttons)
 
 
+def plan_tasks_edit_keyboard (tasks: List[Dict]) -> InlineKeyboardMarkup:
+    builder = InlineKeyboardBuilder()
+
+    for i, task in enumerate(tasks):
+        suffix = ''
+        if len(task) > 20:
+            suffix = '...'
+        
+        builder.row(InlineKeyboardButton(
+            text=f'{i+1}. {task[:20]}{suffix}',
+            callback_data=f"edit_task_{i}"
+        ))
+    builder.row(InlineKeyboardButton(
+            text="➕ Добавить пункт",
+            callback_data="add_new_task"
+        ))
+    builder.row(InlineKeyboardButton(
+        text="🔙 Назад",
+        callback_data="back_to_manage"
+    ))
+
+    return builder.as_markup()
+
+def base_plans_keyboard(plans: List[Plan]) -> InlineKeyboardMarkup:
+    builder = InlineKeyboardBuilder()
+    
+    for plan in plans:
+        builder.add(
+            InlineKeyboardButton(
+                text=plan.name,
+                callback_data=f"select_base_{plan.id}"
+            )
+        )
+    
+    builder.add(
+        InlineKeyboardButton(
+            text="← Назад",
+            callback_data="back_to_plan_types"
+        )
+    )
+    
+    builder.adjust(1)
+    return builder.as_markup()
+
+def user_plans_keyboard(plans: List[Plan]) -> InlineKeyboardMarkup:
+    builder = InlineKeyboardBuilder()
+    
+    for plan in plans:
+        builder.add(
+            InlineKeyboardButton(
+                text=plan.name,
+                callback_data=f"plan_action:user:{plan.id}"
+            )
+        )
+    
+    builder.add(
+        InlineKeyboardButton(
+            text="← Назад",
+            callback_data="back_to_plan_types"
+        )
+    )
+    
+    builder.adjust(1)
+    return builder.as_markup()
+
+def select_plan_keyboard(plan_type: str, plan_id: str) -> InlineKeyboardMarkup:
+    builder = InlineKeyboardBuilder()
+    builder.add(
+        InlineKeyboardButton(
+            text="Выбрать этот план",
+            callback_data=f"use_plan:{plan_type}:{plan_id}"
+        ),
+        InlineKeyboardButton(
+            text="← Назад",
+            callback_data=f"view_{plan_type}_plans"
+        )
+    )
+    builder.adjust(1)
+    return builder.as_markup()

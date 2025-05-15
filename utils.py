@@ -1,10 +1,11 @@
 from aiogram.types import  Message, InlineKeyboardMarkup, CallbackQuery
 from aiogram.fsm.context import FSMContext
-from database import get_current_plan
+from database.plan import get_current_plan
 from keyboards import group_keyboard, personal_keyboard, plan_creation_options_keyboard
 import logging
 
 from keyboards.inline import existing_plans_keyboard, main_menu_keyboard, management_keyboard
+from models import Plan
 from states.user import UserState
 
 logging.basicConfig(level=logging.INFO)
@@ -34,11 +35,19 @@ async def show_plan_creation_options(message: Message, state: FSMContext):
     await state.set_state(UserState.choosing_plan_type)
 
 async def show_main_menu(message: Message):
-    await message.answer("Выберите действие:", reply_markup=main_menu_keyboard())
+    await send_message_with_keyboard(
+        message,
+        "Выберите действие:",
+        reply_markup=main_menu_keyboard()
+    )
 
-async def show_existing_plans(callback: CallbackQuery, state: FSMContext):
+async def show_existing_plans(callback: CallbackQuery):
     await callback.message.edit_text("Выберите тип существующего плана:", reply_markup=existing_plans_keyboard())
     await callback.answer()
 
 async def show_management_menu(message: Message):
     await message.edit_reply_markup(reply_markup=management_keyboard())
+
+def get_plan_body(plan: Plan) -> str:
+    return "\n".join(task.body for task in plan.tasks)
+    

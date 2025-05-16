@@ -137,18 +137,21 @@ def publish_user_plan(telegram_id: int, plan_id: str) -> bool:
                 return False
             
             plan = db.session.query(Plan)\
-                .join(user_plans, Plan.id == user_plans.c.plan_id)\
                 .filter(Plan.id == plan_id)\
-                .filter(user_plans.c.user_id == user.id)\
                 .first()
             
+            if plan:
+                user.published_plan = plan
+                db.session.commit()
+                return True
+
+            plan = db.session.query(Plan).filter(~Plan.users.any()).filter(Plan.id == plan_id).all()
+
             if not plan:
                 logger.error(f"Plan {plan_id} not found or doesn't belong to user {telegram_id}")
                 return False
             
-            user.published_plan = plan
-            db.session.commit()
-            return True
+            
             
     except Exception as e:
         logger.error(f"Error publishing plan: {e}")

@@ -8,7 +8,7 @@ from database.plan import add_comment_to_task, create_user_plan, delete_user_pla
 from database.statistics import create_statistic, update_statistic
 from database.user import get_user_by_telegram_id
 from keyboards.inline import back_keyboard, current_plan_keyboard, existing_plans_keyboard, main_menu_keyboard, management_keyboard, new_day_keyboard, plan_actions_keyboard, plan_confirmation_keyboard, plan_edit_keyboard, plan_editor_keyboard, plan_management_keyboard, plan_tasks_edit_keyboard, plans_keyboard, task_comments_keyboard, task_edit_keyboard, task_marking_keyboard, base_plans_keyboard, task_position_keyboard, user_plans_keyboard, select_plan_keyboard
-from models import Plan, Statistic, Task
+from database.models import Plan, Statistic, Task
 from states.plans import PlanCreation, PlanManagement, PlanView
 from states.user import UserState
 from utils import get_full_current_plan, get_full_plan, get_plan_body, get_plan_by_type_user_id_plan_id, get_plan_published_message, send_message_with_keyboard, logger, show_existing_plans, show_management_menu

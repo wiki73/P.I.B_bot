@@ -1,7 +1,7 @@
 from typing import List
 
 from sqlalchemy import func
-from models import Statistic, Task, User
+from database.models import Statistic, Task, User
 from database.database import db
 import logging
 

@@ -1,4 +1,4 @@
-from models import init_db, Base, Plan, Task, engine
+from database.models import init_db, Base, Plan, Task, engine
 from database.database import db
 
 def create_default_plans():

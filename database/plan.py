@@ -1,5 +1,5 @@
 from typing import List
-from models import Comment, Plan, User, Task, user_plans
+from database.models import Comment, Plan, User, Task, user_plans
 from database.database import db
 import logging
 

@@ -2,7 +2,7 @@ from asyncio.log import logger
 from typing import Dict, List, Literal
 from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton
 from aiogram.utils.keyboard import InlineKeyboardBuilder
-from models import Plan, Task
+from database.models import Plan, Task
 
 def back_button(callback_data = "back_to_main"):
     return InlineKeyboardButton(text="◀️ Назад", callback_data=callback_data)

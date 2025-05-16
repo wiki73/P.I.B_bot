@@ -1,4 +1,4 @@
-from models import User
+from database.models import User
 from database.database import db
 
 def create_user(telegram_id: int, name: str) -> User:

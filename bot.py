@@ -3,9 +3,9 @@ import asyncio
 from config import load_config, set_bot_commands
 from database import *
 from keyboards import *
-from models import init_db
+from database.models import init_db
 from handlers import base, plans, statistics, user
-from scripts.init_db import create_default_plans
+from database.init_db import create_default_plans
 
 
 async def main():

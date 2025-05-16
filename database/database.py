@@ -1,6 +1,6 @@
 from contextlib import contextmanager
 from sqlalchemy.orm import Session
-from models import SessionLocal
+from database.models import SessionLocal
 import logging
 
 logger = logging.getLogger(__name__)

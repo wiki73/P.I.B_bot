@@ -7,7 +7,7 @@ from keyboards import group_keyboard, personal_keyboard, plan_creation_options_k
 import logging
 
 from keyboards.inline import existing_plans_keyboard, main_menu_keyboard, management_keyboard
-from models import Comment, Plan
+from database.models import Comment, Plan
 from states.user import UserState
 
 logging.basicConfig(level=logging.INFO)

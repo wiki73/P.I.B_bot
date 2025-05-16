@@ -1,4 +1,6 @@
 from typing import List
+
+from sqlalchemy import func
 from models import Statistic, Task, User
 from database.database import db
 import logging
@@ -10,7 +12,8 @@ def create_statistic(
     plan_id: str,
     total_tasks: int,
     completed_tasks: int,
-    study_hours: float
+    study_hours: float,
+    group_id: int | None = None 
 ) -> Statistic:
     try:
         with db.transaction():
@@ -24,7 +27,8 @@ def create_statistic(
                 plan_id=plan_id,
                 total_tasks=total_tasks,
                 completed_tasks=completed_tasks,
-                study_hours=study_hours
+                study_hours=study_hours,
+                group_id=group_id
             )
             db.session.add(statistic)
             db.session.commit()
@@ -160,3 +164,64 @@ def update_plan_statistics(telegram_id: int, plan_id: str, study_hours: float = 
         logger.error(f"Error updating plan statistics: {e}")
         db.session.rollback()
         return False
+    
+def get_user_lifetime_statistics(telegram_id: int) -> dict:
+    """
+    Получает общую статистику пользователя за все время
+    :param telegram_id: Telegram ID пользователя
+    :return: Словарь с общей статистикой
+    """
+    try:
+        user = db.session.query(User).filter(User.telegram_id == telegram_id).first()
+        if not user:
+            return {"total_completed": 0, "total_study_hours": 0.0}
+        
+        result = db.session.query(
+            func.sum(Statistic.completed_tasks).label("total_completed"),
+            func.sum(Statistic.study_hours).label("total_study_hours")
+        ).filter(Statistic.user_id == user.id).first()
+        
+        return {
+            "total_completed": result.total_completed or 0,
+            "total_study_hours": round(result.total_study_hours or 0.0, 2)
+        }
+    except Exception as e:
+        logger.error(f"Error getting user lifetime statistics: {e}")
+        return {"total_completed": 0, "total_study_hours": 0.0}
+
+def get_group_lifetime_statistics(telegram_ids: List[int]) -> dict:
+    """
+    Получает общую статистику группы пользователей за все время
+    :param telegram_ids: Список Telegram ID пользователей
+    :return: Словарь с общей статистикой группы
+    """
+    try:
+        result = db.session.query(
+            func.sum(Statistic.completed_tasks).label("total_completed"),
+            func.sum(Statistic.study_hours).label("total_study_hours")
+        ).join(User, Statistic.user_id == User.id)\
+         .filter(User.telegram_id.in_(telegram_ids)).first()
+        
+        return {
+            "total_completed": result.total_completed or 0,
+            "total_study_hours": round(result.total_study_hours or 0.0, 2),
+            "user_count": len(telegram_ids)
+        }
+    except Exception as e:
+        logger.error(f"Error getting group lifetime statistics: {e}")
+        return {"total_completed": 0, "total_study_hours": 0.0, "user_count": 0}
+    
+def get_group_statistics_by_chat_id(group_id: int) -> dict:
+    try:
+        result = db.session.query(
+            func.sum(Statistic.completed_tasks).label("total_completed"),
+            func.sum(Statistic.study_hours).label("total_study_hours")
+        ).filter(Statistic.group_id == group_id).first()
+        
+        return {
+            "total_completed": result.total_completed or 0,
+            "total_study_hours": round(result.total_study_hours or 0.0, 2)
+        }
+    except Exception as e:
+        logger.error(f"Error getting group statistics: {e}")
+        return {"total_completed": 0, "total_study_hours": 0.0}

@@ -808,7 +808,14 @@ async def finish_day(callback: CallbackQuery, state: FSMContext):
 
     completed_tasks_count = sum(1 for task in tasks if task.checked)
 
-    statistic: Statistic = create_statistic(callback.from_user.id, plan_id=plan.id, total_tasks=len(plan.tasks), completed_tasks=completed_tasks_count, study_hours=0)
+    statistic: Statistic = create_statistic(
+        user_id=callback.from_user.id, 
+        plan_id=plan.id, 
+        total_tasks=len(plan.tasks), 
+        completed_tasks=completed_tasks_count, 
+        study_hours=0,
+        group_id=callback.message.chat.id
+        )
     reset_plan(plan.id)
 
     await callback.message.edit_text(

@@ -10,5 +10,6 @@ BOT_COMMANDS = [
     BotCommand(command="statistics", description="Посмотреть статистику"),
 ]
 
+
 async def set_bot_commands(bot):
     await bot.set_my_commands(BOT_COMMANDS)

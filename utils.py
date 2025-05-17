@@ -6,7 +6,7 @@ from database.plan import get_base_plans, get_current_plan, get_user_plans
 from keyboards import group_keyboard, personal_keyboard, plan_creation_options_keyboard
 import logging
 
-from keyboards.inline import existing_plans_keyboard, main_menu_keyboard, management_keyboard
+from keyboards.inline import existing_plans_keyboard, kb_main_menu, kb_plans, management_keyboard
 from database.models import Comment, Plan
 from states.user import UserState
 
@@ -40,7 +40,7 @@ async def show_main_menu(message: Message):
     await send_message_with_keyboard(
         message,
         "Выберите действие:",
-        reply_markup=main_menu_keyboard()
+        reply_markup=kb_main_menu()
     )
 
 async def show_existing_plans(callback: CallbackQuery):
@@ -83,3 +83,23 @@ def get_plan_by_type_user_id_plan_id(plan_type: Literal['base', 'user'], user_id
         plans = get_user_plans(user_id)
     
     return next((p for p in plans if str(p.id) == plan_id), None)
+
+async def send_welcome_message(message: Message, user_name: str):
+    text = (
+        f"👋 Привет, {user_name}!\n\n"
+        "Я — твой помощник по планированию задач и организации дня.\n"
+        "Со мной ты сможешь:\n"
+        "- Составлять планы на день\n"
+        "- Отслеживать свои задачи\n"
+        "- Использовать бот как в личных чатах, так и в группах для совместного планирования\n\n"
+        "📋 Доступные команды:\n"
+        "/create_plan — Создать новый план\n"
+        "/view_plans — Посмотреть свои планы\n"
+        "/info — Зачем нужно планирование\n"
+        "/help — Показать список всех команд\n\n"
+        "В группах доступны:\n"
+        "/new_day — Начать новый день\n"
+        "/static — Посмотреть статистику группы\n\n"
+        "Попробуй создать свой первый план или выбери нужную команду из меню."
+    )
+    await send_message_with_keyboard(message, text, reply_markup=kb_plans())

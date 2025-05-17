@@ -1,37 +1,20 @@
 from datetime import datetime
-from typing import List, Literal
+from typing import List
 from aiogram import Router, F, types, Bot
 from aiogram.filters import Command
 from aiogram.fsm.context import FSMContext
 from aiogram.types import Message, CallbackQuery
+from config.callback_data import PlanAction, PlansView
 from database.plan import add_comment_to_task, create_user_plan, delete_user_plan, get_base_plans, get_current_plan, get_published_plan, get_user_plans, publish_user_plan, reset_plan, set_current_plan
 from database.statistics import create_statistic, update_statistic
 from database.user import get_user_by_telegram_id
-from keyboards.inline import back_keyboard, current_plan_keyboard, existing_plans_keyboard, main_menu_keyboard, management_keyboard, new_day_keyboard, plan_actions_keyboard, plan_confirmation_keyboard, plan_edit_keyboard, plan_editor_keyboard, plan_management_keyboard, plan_tasks_edit_keyboard, plans_keyboard, task_comments_keyboard, task_edit_keyboard, task_marking_keyboard, base_plans_keyboard, task_position_keyboard, user_plans_keyboard, select_plan_keyboard
+from keyboards.inline import back_keyboard, current_plan_keyboard, existing_plans_keyboard, kb_main_menu, management_keyboard, new_day_keyboard, plan_actions_keyboard, plan_confirmation_keyboard, plan_edit_keyboard, plan_editor_keyboard, plan_management_keyboard, plan_tasks_edit_keyboard, plans_keyboard, task_comments_keyboard, task_edit_keyboard, task_marking_keyboard, base_plans_keyboard, task_position_keyboard, user_plans_keyboard, select_plan_keyboard
 from database.models import Plan, Statistic, Task
 from states.plans import PlanCreation, PlanManagement, PlanView
 from states.user import UserState
 from utils import get_full_current_plan, get_full_plan, get_plan_body, get_plan_by_type_user_id_plan_id, get_plan_published_message, send_message_with_keyboard, logger, show_existing_plans, show_management_menu
 
 router = Router()
-
-@router.message(Command('create_plan'))
-async def create_plan_command(message: types.Message, state: FSMContext):
-    logger.info(f"Create plan command received, current state: {await state.get_state()}")
-
-    if message.chat.type == "private":
-        await send_message_with_keyboard(
-            message,
-            "📝 Давайте создадим новый план.\n"
-            "Введите название для вашего плана:"
-        )
-        await state.set_state(PlanCreation.waiting_for_title)
-        logger.info(f"New state set: {await state.get_state()}")
-    else:
-        await send_message_with_keyboard(
-            message,
-            "Эта команда доступна только в личном чате с ботом."
-        )
 
 @router.message(PlanCreation.waiting_for_title)
 async def process_plan_title(message: types.Message, state: FSMContext):
@@ -109,7 +92,7 @@ async def finish_plan_editing(callback: CallbackQuery, state: FSMContext):
     plan: Plan = data.get('plan')
     group_id = data.get('group_id')
 
-    reply_markup = main_menu_keyboard()
+    reply_markup = kb_main_menu()
     if group_id:
         reply_markup = plan_confirmation_keyboard()
     elif get_user_by_telegram_id(callback.from_user.id).published_plan_id == plan.id:
@@ -250,7 +233,7 @@ async def handle_plan_action(callback: CallbackQuery, state: FSMContext):
 
 @router.callback_query(UserState.selecting_existing_plan, F.data.startswith('select_user_'))
 async def select_user_plan_for_new_day(callback: CallbackQuery, state: FSMContext):
-    await show_user_plans(callback, state)
+    await plans_view_handler(callback, state)
 
 @router.callback_query(UserState.selecting_existing_plan, F.data.in_(["select_base_plans", "select_user_plans", "cancel_plan_creation"]))
 async def handle_existing_plan_choice(callback: CallbackQuery, state: FSMContext):
@@ -341,35 +324,64 @@ async def view_plans_command(message: types.Message, state: FSMContext):
     )
     await state.set_state(PlanView.viewing_plans)
 
-
-@router.callback_query(F.data == "view_base_plans", PlanView.viewing_plans)
-async def show_base_plans(callback: types.CallbackQuery):
-    base_plans = get_base_plans()
+@router.callback_query(PlansView.filter(), PlanView.viewing_plans)
+async def plans_view_handler(callback: types.CallbackQuery, callback_data: PlansView):
+    plan_type = callback_data.plan_type
+    if plan_type == 'user':
+        user_plans = get_user_plans(callback.from_user.id)
+        if not user_plans:
+            await callback.message.answer("У вас пока нет сохраненных планов.")
+            await callback.answer()
+            return
+        
+        await callback.message.edit_text(
+            "📁 Ваши сохраненные планы:",
+            reply_markup=user_plans_keyboard(user_plans)
+        )
+    if plan_type == 'base':
+        base_plans = get_base_plans()
     
-    if not base_plans:
-        await callback.message.edit_text("Базовые планы не найдены.")
-        return
-    
-    await callback.message.edit_text(
-        "📚 Доступные базовые планы:",
-        reply_markup=base_plans_keyboard(base_plans),
-        parse_mode="HTML"
-    )
+        if not base_plans:
+            await callback.message.edit_text("Базовые планы не найдены.")
+            return
+        
+        await callback.message.edit_text(
+            "📚 Доступные базовые планы:",
+            reply_markup=base_plans_keyboard(base_plans),
+            parse_mode="HTML"
+        )
     await callback.answer()
 
-@router.callback_query(F.data == "view_user_plans", PlanView.viewing_plans)
-async def show_user_plans(callback: types.CallbackQuery, state: FSMContext):
-    user_plans = get_user_plans(callback.from_user.id)
-    if not user_plans:
-        await callback.message.answer("У вас пока нет сохраненных планов.")
+@router.callback_query(PlanAction.filter())
+async def plan_action_handler(callback: CallbackQuery, callback_data: PlanAction, message: Message, state: FSMContext):
+        action = callback_data.action
+        plan_type = callback_data.plan_type
+        plan_id = callback_data.plan_id
+
+        if action == 'create' and message.chat.type == "private":
+            await send_message_with_keyboard(
+            message,
+            "📝 Давайте создадим новый план.\n"
+            "Введите название для вашего плана:"
+            )
+            await state.set_state(PlanCreation.waiting_for_title)
+        if action == 'current':
+            user_id = callback.from_user.id
+            plan = get_current_plan(user_id)
+            
+            if not plan:
+                await callback.message.edit_text("У вас нет активного плана.", reply_markup=back_keyboard())
+                await callback.answer()
+                return
+            
+            await state.update_data(plan=plan)
+            await callback.message.edit_text(
+                get_full_current_plan(plan),
+                reply_markup=current_plan_keyboard(),
+                parse_mode='HTML'
+            )
         await callback.answer()
-        return
-    
-    await callback.message.edit_text(
-        "📁 Ваши сохраненные планы:",
-        reply_markup=user_plans_keyboard(user_plans)
-    )
-    await callback.answer()
+
 
 @router.callback_query(F.data == "back_to_plan_types")
 async def back_to_plan_types(callback: types.CallbackQuery):
@@ -426,7 +438,7 @@ async def use_plan(callback: types.CallbackQuery):
         f"✅ План <b>{selected_plan.name}</b> теперь ваш текущий план!\n\n"
         f"Содержание:\n{plan_text}",
         parse_mode='HTML',
-        reply_markup=main_menu_keyboard()
+        reply_markup=kb_main_menu()
     )
     await callback.answer()
 
@@ -748,7 +760,7 @@ async def process_new_task(message: Message, state: FSMContext):
 @router.callback_query(F.data == "back_to_main")
 async def back_to_main_menu(callback: CallbackQuery, state: FSMContext):
     await state.clear()
-    await callback.message.edit_text("Выберите действие:", reply_markup=main_menu_keyboard())
+    await callback.message.edit_text("Выберите действие:", reply_markup=kb_main_menu())
     await callback.answer()
 
 @router.callback_query(F.data == "edit_current_plan")

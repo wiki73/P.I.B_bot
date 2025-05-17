@@ -19,7 +19,7 @@ class User(Base):
     __tablename__ = 'users'
     
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
-    telegram_id = Column(Integer, unique=True, nullable=False)
+    telegram_id = Column(BigInteger, unique=True, nullable=False)
     name = Column(String, nullable=False)
     current_plan_id = Column(UUID(as_uuid=True), ForeignKey('plans.id'), nullable=True)
     published_plan_id = Column(UUID(as_uuid=True), ForeignKey('plans.id'), nullable=True)
@@ -92,7 +92,7 @@ engine = create_engine(DATABASE_URL)
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
 
 def init_db():
-    # Base.metadata.drop_all(bind=engine)
+    Base.metadata.drop_all(bind=engine)
     Base.metadata.create_all(bind=engine)
 
 def get_db():

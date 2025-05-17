@@ -1,12 +1,12 @@
 from .inline import (
-    main_menu_keyboard,
+    kb_main_menu,
     management_keyboard,
     existing_plans_keyboard,
     plan_creation_options_keyboard,
     base_plans_keyboard,
     back_keyboard,
-    cancel_plan_creation_keyboard,
-    help_keyboard,
+    kb_cancel_plan_creation,
+    kb_plans,
     plans_keyboard,
     create_plan_keyboard,
     new_day_keyboard,
@@ -28,14 +28,14 @@ from .inline import (
 from .reply import group_keyboard, personal_keyboard
 
 __all__ = [
-    'main_menu_keyboard',
+    'kb_main_menu',
     'management_keyboard',
     'existing_plans_keyboard',
     'plan_creation_options_keyboard',
     'base_plans_keyboard',
     'back_keyboard',
-    'cancel_plan_creation_keyboard',
-    'help_keyboard',
+    'kb_cancel_plan_creation',
+    'kb_plans',
     'plans_keyboard',
     'create_plan_keyboard',
     'new_day_keyboard',

@@ -2,9 +2,9 @@ from aiogram import Router, types
 from aiogram.filters import CommandStart, Command
 from aiogram.fsm.context import FSMContext
 from aiogram.types import Message
-from database.user import get_user_by_telegram_id
-from keyboards.inline import help_keyboard
-from utils import logger
+from database.user import get_user_by_telegram_id, save_user
+from keyboards.inline import kb_plans
+from utils import logger, send_welcome_message
 from states import UserState
 from utils import show_plan_creation_options, send_message_with_keyboard, show_main_menu
 
@@ -27,20 +27,10 @@ async def start_command(message: types.Message, state: FSMContext):
         logger.info(f'Found user: {user}')
         
         if user is None:
-            logger.info('User not found, requesting nickname')
-            await state.set_state(UserState.waiting_for_nickname)
-            logger.info(f'State set to {UserState.waiting_for_nickname}')
-            await send_message_with_keyboard(
-                message,
-                'Привет! Я твой бот для планирования. Как мне тебя называть?'
-            )
-        else:
-            logger.info(f'User exists: {user.name}')
-            await send_message_with_keyboard(
-                message,
-                f"Привет, {user.name}! Чем могу помочь?"
-            )
-            await show_main_menu(message)
+            logger.info('User not found, creating user')
+        user = save_user(user_id, message.from_user.full_name)
+        logger.info(f'User exists: {user.name}')
+        await send_welcome_message(message, message.from_user.full_name)
 
 @router.message(Command('help'))
 async def help_command(message: types.Message):
@@ -54,7 +44,7 @@ async def help_command(message: types.Message):
             "/view_plans - Посмотреть планы"
         )
 
-        await send_message_with_keyboard(message, help_text, reply_markup=help_keyboard())
+        await send_message_with_keyboard(message, help_text, reply_markup=kb_plans())
     else:
         await send_message_with_keyboard(
             message,

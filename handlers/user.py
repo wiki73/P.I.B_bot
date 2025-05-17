@@ -9,9 +9,7 @@ from states.user import UserState
 from utils import send_message_with_keyboard, show_main_menu, logger
 from database.database import db
 
-
 router = Router()
-
 
 @router.message(UserState.waiting_for_nickname)
 async def process_nickname(message: Message, state: FSMContext):

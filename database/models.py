@@ -129,11 +129,7 @@ SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
 
 
 def init_db():
-<<<<<<< HEAD:models.py
-   # Base.metadata.drop_all(bind=engine)
-=======
     Base.metadata.drop_all(bind=engine)
->>>>>>> d32904e1392e8bd5fe9ec6cce1145b1f99f0b2c3:database/models.py
     Base.metadata.create_all(bind=engine)
 
 

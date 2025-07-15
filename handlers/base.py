@@ -44,6 +44,7 @@ async def help_command(message: types.Message):
             "/info - О планировании\n"
             "/create_plan - Создать новый план\n"
             "/view_plans - Посмотреть планы"
+            "/current_plan - Посмотреть текущий план\n"
         )
 
         await send_message_with_keyboard(message, help_text, reply_markup=kb_plans())

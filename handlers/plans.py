@@ -58,6 +58,23 @@ from utils import (
 
 router = Router()
 
+@router.message(Command('current_plan'))
+async def handle_current_plan_command(message: Message, state: FSMContext):
+    user_id = message.from_user.id
+    plan = get_current_plan(user_id)
+
+    if not plan:
+        await message.reply(
+            "У вас нет активного плана.", reply_markup=back_keyboard()
+        )
+        return
+
+    await state.update_data(plan=plan)
+    await message.reply(
+        get_full_current_plan(plan),
+        reply_markup=current_plan_keyboard(),
+        parse_mode="HTML",
+    )
 
 @router.message(PlanCreation.waiting_for_title)
 async def process_plan_title(message: types.Message, state: FSMContext):
@@ -381,7 +398,6 @@ async def show_current_plan(callback: CallbackQuery, state: FSMContext):
     )
     await callback.answer()
 
-
 @router.message(Command("view_plans"))
 async def view_plans_command(message: types.Message, state: FSMContext):
     if message.chat.type != "private":
@@ -525,7 +541,6 @@ async def use_plan(callback: types.CallbackQuery):
         f"✅ План <b>{selected_plan.name}</b> теперь ваш текущий план!\n\n"
         f"Содержание:\n{plan_text}",
         parse_mode="HTML",
-        reply_markup=kb_main_menu(),
     )
     await callback.answer()
 
@@ -867,6 +882,10 @@ async def back_to_main_menu(callback: CallbackQuery, state: FSMContext):
     await state.clear()
     await callback.message.edit_text("Выберите действие:", reply_markup=kb_main_menu())
     await callback.answer()
+
+@router.callback_query(F.data == "back_to_view_plans")
+async def back_to_main_menu(callback: CallbackQuery):
+    await callback.message.edit_text("Выберите план:", reply_markup=existing_plans_keyboard())
 
 
 @router.callback_query(F.data == "edit_current_plan")

@@ -8,6 +8,7 @@ BOT_COMMANDS = [
     BotCommand(command="view_plans", description="Посмотреть планы"),
     BotCommand(command="new_day", description="Начать новый день"),
     BotCommand(command="statistics", description="Посмотреть статистику"),
+    BotCommand(command="current_plan", description="Посмотреть текущий план"),
 ]
 
 

@@ -62,13 +62,13 @@ def plans_keyboard(
             )
         ]
         for plan in plans
-    ] + [[btn_back()]]
+    ] + [[btn_back("back_to_view_plans")]]
 
     return InlineKeyboardMarkup(inline_keyboard=buttons)
 
 
 def create_plan_keyboard() -> InlineKeyboardMarkup:
-    buttons = [[btn_back()]]
+    buttons = [[btn_back("back_to_view_plans")]]
 
     return InlineKeyboardMarkup(inline_keyboard=buttons)
 
@@ -160,7 +160,7 @@ def plan_actions_keyboard(
                 callback_data=f"use_plan:{plan_type}:{plan_id}",
             )
         ],
-        [btn_back("view_base_plans")],
+        [btn_back("view_user_plans")],
     ]
 
     if plan_type == "user":

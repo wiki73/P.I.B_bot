@@ -285,3 +285,11 @@ def reset_plan(plan_id: str) -> bool:
         logger.error(f"Error resetting plan {plan_id}: {e}")
         db.session.rollback()
         return False
+
+
+def get_plan_by_id(plan_id: str) -> Plan | None:
+    try:
+        return db.session.query(Plan).filter(Plan.id == plan_id).first()
+    except Exception as e:
+        logger.error(f"Error getting plan by id: {e}")
+        return None

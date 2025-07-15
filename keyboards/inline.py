@@ -1,7 +1,7 @@
 from typing import Dict, List, Literal
 from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton
 from aiogram.utils.keyboard import InlineKeyboardBuilder
-from config.callback_data import PlanAction, PlansView
+from config.callback_data import PlanAction, PlanType, PlansView
 from database.models import Plan, Task
 
 
@@ -13,7 +13,9 @@ def kb_cancel_plan_creation() -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(inline_keyboard=[[btn_back()]])
 
 
-def kb_main_menu() -> InlineKeyboardMarkup:
+def kb_main_menu(
+    plan_type: PlanType | None = None, plan_id: str | None = None
+) -> InlineKeyboardMarkup:
     buttons = [
         [
             InlineKeyboardButton(
@@ -32,7 +34,10 @@ def kb_main_menu() -> InlineKeyboardMarkup:
         ],
         [
             InlineKeyboardButton(
-                text="Текущий план", callback_data=PlanAction(action="current").pack()
+                text="Текущий план",
+                callback_data=PlanAction(
+                    action="current", plan_type=plan_type, plan_id=plan_id
+                ).pack(),
             )
         ],
     ]
@@ -58,7 +63,8 @@ def plans_keyboard(
     buttons = [
         [
             InlineKeyboardButton(
-                text=plan.name, callback_data=f"plan_action:{type}:{plan.id}"
+                text=plan.name,
+                callback_data=PlanAction(action="view", plan_id=str(plan.id)).pack(),
             )
         ]
         for plan in plans

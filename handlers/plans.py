@@ -11,6 +11,7 @@ from database.plan import (
     delete_user_plan,
     get_base_plans,
     get_current_plan,
+    get_plan_by_id,
     get_published_plan,
     get_user_plans,
     publish_user_plan,
@@ -58,15 +59,42 @@ from utils import (
 
 router = Router()
 
-@router.message(Command('current_plan'))
+
+@router.callback_query(PlansView.filter())
+async def plans_view_handler(callback: types.CallbackQuery, callback_data: PlansView):
+    plan_type = callback_data.plan_type
+    if plan_type == "user":
+        user_plans = get_user_plans(callback.from_user.id)
+        if not user_plans:
+            await callback.message.answer("У вас пока нет сохраненных планов.")
+            await callback.answer()
+            return
+
+        await callback.message.edit_text(
+            "📁 Ваши сохраненные планы:", reply_markup=user_plans_keyboard(user_plans)
+        )
+    if plan_type == "base":
+        base_plans = get_base_plans()
+
+        if not base_plans:
+            await callback.message.edit_text("Базовые планы не найдены.")
+            return
+
+        await callback.message.edit_text(
+            "📚 Доступные базовые планы:",
+            reply_markup=base_plans_keyboard(base_plans),
+            parse_mode="HTML",
+        )
+    await callback.answer()
+
+
+@router.message(Command("current_plan"))
 async def handle_current_plan_command(message: Message, state: FSMContext):
     user_id = message.from_user.id
     plan = get_current_plan(user_id)
 
     if not plan:
-        await message.reply(
-            "У вас нет активного плана.", reply_markup=back_keyboard()
-        )
+        await message.reply("У вас нет активного плана.", reply_markup=back_keyboard())
         return
 
     await state.update_data(plan=plan)
@@ -75,6 +103,7 @@ async def handle_current_plan_command(message: Message, state: FSMContext):
         reply_markup=current_plan_keyboard(),
         parse_mode="HTML",
     )
+
 
 @router.message(PlanCreation.waiting_for_title)
 async def process_plan_title(message: types.Message, state: FSMContext):
@@ -153,13 +182,13 @@ async def finish_plan_editing(callback: CallbackQuery, state: FSMContext):
     plan: Plan = data.get("plan")
     group_id = data.get("group_id")
 
-    reply_markup = kb_main_menu()
+    reply_markup = current_plan_keyboard()
     if group_id:
         reply_markup = plan_confirmation_keyboard()
     elif get_user_by_telegram_id(callback.from_user.id).published_plan_id == plan.id:
         reply_markup = management_keyboard()
     await callback.message.edit_text(
-        get_full_plan(plan) + "\n\nХотите опубликовать этот план в группу?",
+        get_full_plan(plan) + "\n План сохранен! 🙃",
         reply_markup=reply_markup,
         parse_mode="HTML",
     )
@@ -285,31 +314,31 @@ async def handle_show_base_plans(callback: CallbackQuery):
     await callback.answer()
 
 
-@router.callback_query(F.data.startswith("plan_action:"))
-async def handle_plan_action(callback: CallbackQuery, state: FSMContext):
-    current_state = await state.get_state()
-    _, plan_type, plan_id = callback.data.split(":")
+# async def handle_plan_action(callback: CallbackQuery, state: FSMContext):
+#     current_state = await state.get_state()
+#     logger.info("CALLBACK DATA HANDLE PLAN ACTION!!!!!!!!!!!!" + str(callback.data))
+#     _, plan_type, plan_id = callback.data.split(":")
 
-    plan = get_plan_by_type_user_id_plan_id(
-        plan_type, plan_id=plan_id, user_id=callback.from_user.id
-    )
+#     plan = get_plan_by_type_user_id_plan_id(
+#         plan_type, plan_id=plan_id, user_id=callback.from_user.id
+#     )
 
-    if not plan:
-        await callback.answer("План не найден!")
-        return
+#     if not plan:
+#         await callback.answer("План не найден!")
+#         return
 
-    if current_state == "UserState:selecting_existing_plan":
-        await state.update_data(plan=plan)
-        await callback.message.edit_text(
-            get_full_plan(plan), reply_markup=plan_edit_keyboard(), parse_mode="HTML"
-        )
-    else:
-        await callback.message.edit_text(
-            get_full_plan(plan),
-            parse_mode="HTML",
-            reply_markup=plan_actions_keyboard(plan.name, plan_type, str(plan.id)),
-        )
-    await callback.answer()
+#     if current_state == "UserState:selecting_existing_plan":
+#         await state.update_data(plan=plan)
+#         await callback.message.edit_text(
+#             get_full_plan(plan), reply_markup=plan_edit_keyboard(), parse_mode="HTML"
+#         )
+#     else:
+#         await callback.message.edit_text(
+#             get_full_plan(plan),
+#             parse_mode="HTML",
+#             reply_markup=plan_actions_keyboard(plan.name, plan_type, str(plan.id)),
+#         )
+#     await callback.answer()
 
 
 @router.callback_query(
@@ -398,6 +427,7 @@ async def show_current_plan(callback: CallbackQuery, state: FSMContext):
     )
     await callback.answer()
 
+
 @router.message(Command("view_plans"))
 async def view_plans_command(message: types.Message, state: FSMContext):
     if message.chat.type != "private":
@@ -416,52 +446,22 @@ async def view_plans_command(message: types.Message, state: FSMContext):
 
 @router.message(Command("create_plan"))
 async def handle_create_plan_command(message: types.Message, state: FSMContext):
-    await message.answer('Напишите название нового плана')
+    await message.answer("Напишите название нового плана")
     await state.set_state(PlanCreation.waiting_for_title)
-
-
-@router.callback_query(PlansView.filter(), PlanView.viewing_plans)
-async def plans_view_handler(callback: types.CallbackQuery, callback_data: PlansView):
-    plan_type = callback_data.plan_type
-    if plan_type == "user":
-        user_plans = get_user_plans(callback.from_user.id)
-        if not user_plans:
-            await callback.message.answer("У вас пока нет сохраненных планов.")
-            await callback.answer()
-            return
-
-        await callback.message.edit_text(
-            "📁 Ваши сохраненные планы:", reply_markup=user_plans_keyboard(user_plans)
-        )
-    if plan_type == "base":
-        base_plans = get_base_plans()
-
-        if not base_plans:
-            await callback.message.edit_text("Базовые планы не найдены.")
-            return
-
-        await callback.message.edit_text(
-            "📚 Доступные базовые планы:",
-            reply_markup=base_plans_keyboard(base_plans),
-            parse_mode="HTML",
-        )
-    await callback.answer()
 
 
 @router.callback_query(PlanAction.filter())
 async def plan_action_handler(
     callback: CallbackQuery,
     callback_data: PlanAction,
-    message: Message,
     state: FSMContext,
 ):
     action = callback_data.action
-    plan_type = callback_data.plan_type
     plan_id = callback_data.plan_id
 
-    if action == "create" and message.chat.type == "private":
+    if action == "create" and callback.message.chat.type == "private":
         await send_message_with_keyboard(
-            message,
+            callback.message,
             "📝 Давайте создадим новый план.\n" "Введите название для вашего плана:",
         )
         await state.set_state(PlanCreation.waiting_for_title)
@@ -482,6 +482,15 @@ async def plan_action_handler(
             reply_markup=current_plan_keyboard(),
             parse_mode="HTML",
         )
+    if action == "view" and plan_id:
+        plan = get_plan_by_id(plan_id)
+        if plan:
+            await state.update_data(plan=plan)
+            await callback.message.edit_text(
+                get_full_current_plan(plan),
+                reply_markup=current_plan_keyboard(),
+                parse_mode="HTML",
+            )
     await callback.answer()
 
 
@@ -827,12 +836,11 @@ async def process_task_edit(message: Message, state: FSMContext):
         await state.update_data(tasks=tasks)
 
         await message.answer(
-            text=get_full_plan(plan),
+            text=get_full_plan(plan) + "\nПункт успешно обновлен!",
             reply_markup=plan_edit_keyboard(),
             parse_mode="HTML",
         )
 
-        await message.answer("Пункт успешно обновлен!")
         await state.set_state(PlanManagement.managing_plan)
     except Exception as e:
         logger.error(f"Ошибка в process_task_edit: {e}")
@@ -883,9 +891,12 @@ async def back_to_main_menu(callback: CallbackQuery, state: FSMContext):
     await callback.message.edit_text("Выберите действие:", reply_markup=kb_main_menu())
     await callback.answer()
 
+
 @router.callback_query(F.data == "back_to_view_plans")
 async def back_to_main_menu(callback: CallbackQuery):
-    await callback.message.edit_text("Выберите план:", reply_markup=existing_plans_keyboard())
+    await callback.message.edit_text(
+        "Выберите план:", reply_markup=existing_plans_keyboard()
+    )
 
 
 @router.callback_query(F.data == "edit_current_plan")

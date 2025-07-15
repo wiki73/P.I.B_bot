@@ -398,6 +398,12 @@ async def view_plans_command(message: types.Message, state: FSMContext):
     await state.set_state(PlanView.viewing_plans)
 
 
+@router.message(Command("create_plan"))
+async def handle_create_plan_command(message: types.Message, state: FSMContext):
+    await message.answer('Напишите название нового плана')
+    await state.set_state(PlanCreation.waiting_for_title)
+
+
 @router.callback_query(PlansView.filter(), PlanView.viewing_plans)
 async def plans_view_handler(callback: types.CallbackQuery, callback_data: PlansView):
     plan_type = callback_data.plan_type
